@@ -1,0 +1,502 @@
+/* Scope all styles under employee-action-page */
+.employee-action-page {
+  min-height: 100vh;
+  background-color: #f5f5f5;
+  display: flex;
+  flex-direction: column;
+  overflow-x: auto;
+}
+
+.employee-action-page .page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 30px;
+  background-color: white;
+  border-bottom: 1px solid #e5e7eb;
+  flex-shrink: 0;
+}
+
+.employee-action-page .header-left h1 {
+  font-size: 24px;
+  font-weight: 700;
+  color: #1f2937;
+  margin: 0;
+}
+
+.employee-action-page .header-right {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.employee-action-page .header-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border: 2px solid #e5e7eb;
+  background-color: white;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #374151;
+  cursor: pointer;
+  transition: all 0.3s;
+  white-space: nowrap;
+}
+
+.employee-action-page .header-btn.time-entry {
+  background-color: #f59e0b;
+  border-color: #f59e0b;
+  color: white;
+  border-radius: 25px;
+  font-weight: 600;
+  box-shadow: 0 2px 4px rgba(245, 158, 11, 0.3);
+}
+
+.employee-action-page .header-btn.time-entry:hover {
+  background-color: #d97706;
+  box-shadow: 0 4px 6px rgba(245, 158, 11, 0.4);
+}
+
+.employee-action-page .header-btn.active {
+  background-color: #1f2937;
+  border-color: #1f2937;
+  color: white;
+}
+
+.employee-action-page .header-btn.logout {
+  background-color: #fff;
+  color: #374151;
+  border: 2px solid #e5e7eb;
+}
+
+.employee-action-page .header-btn.logout:hover {
+  background-color: #f9fafb;
+  border-color: #d1d5db;
+}
+
+.employee-action-page .header-btn:hover:not(.time-entry) {
+  background-color: #f9fafb;
+}
+
+.employee-action-page .btn-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.employee-action-page .page-content {
+  display: grid;
+  grid-template-columns: 400px 1fr;
+  gap: 20px;
+  padding: 20px 30px;
+  flex: 1;
+}
+
+.employee-action-page .left-section,
+.employee-action-page .right-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.employee-action-page .left-section {
+  max-width: 400px;
+  width: 100%;
+}
+
+.employee-action-page .right-section {
+  flex: 1;
+  min-width: 0;
+}
+
+.employee-action-page .card {
+  background-color: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  margin-bottom: 20px;
+}
+
+.employee-action-page .card h2 {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1f2937;
+  margin: 0 0 15px 0;
+}
+
+/* Store Management */
+.employee-action-page .store-info {
+  font-size: 14px;
+}
+
+.employee-action-page .store-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.employee-action-page .branch-name {
+  font-weight: 600;
+}
+
+.employee-action-page .store-status {
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.employee-action-page .store-status.open {
+  background-color: #d1fae5;
+  color: #065f46;
+}
+
+.employee-action-page .operating-hours {
+  color: #6b7280;
+  margin-bottom: 15px;
+}
+
+.employee-action-page .time-display {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+  margin-bottom: 15px;
+}
+
+.employee-action-page .time-box {
+  text-align: center;
+}
+
+.employee-action-page .time-box label {
+  display: block;
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 5px;
+}
+
+.employee-action-page .time-box .time {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.employee-action-page .store-footer {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 15px;
+}
+
+.employee-action-page .close-store-btn {
+  width: 100%;
+  padding: 12px;
+  background-color: #fbbf24;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.employee-action-page .close-store-btn:hover {
+  background-color: #f59e0b;
+}
+
+/* Checklist */
+.employee-action-page .card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.employee-action-page .card-header h2 {
+  margin: 0;
+}
+
+.employee-action-page .menu-btn {
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  color: #6b7280;
+  padding: 0;
+}
+
+.employee-action-page .checklist-count {
+  color: #6b7280;
+  font-size: 13px;
+  margin: 0 0 15px 0;
+}
+
+.employee-action-page .checklist-items {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 15px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.employee-action-page .checklist-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  cursor: pointer;
+  user-select: none;
+}
+
+.employee-action-page .checklist-item input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.employee-action-page .checklist-item span {
+  flex: 1;
+}
+
+.employee-action-page .checklist-item span.completed {
+  text-decoration: line-through;
+  color: #9ca3af;
+}
+
+.employee-action-page .complete-all-btn {
+  width: 100%;
+  padding: 12px;
+  background-color: #fbbf24;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.employee-action-page .complete-all-btn:hover {
+  background-color: #f59e0b;
+}
+
+/* Daily Sales */
+.employee-action-page .sales-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 15px;
+}
+
+.employee-action-page .sales-stat {
+  padding: 15px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+
+.employee-action-page .sales-stat.main {
+  background-color: #f9fafb;
+}
+
+.employee-action-page .stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1f2937;
+  margin-bottom: 5px;
+}
+
+.employee-action-page .stat-label {
+  font-size: 13px;
+  color: #6b7280;
+  margin-bottom: 10px;
+}
+
+.employee-action-page .stat-sub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 15px;
+}
+
+.employee-action-page .stat-number {
+  font-size: 24px;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.employee-action-page .stat-text {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.employee-action-page .sizes {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.employee-action-page .sizes div {
+  display: flex;
+  gap: 5px;
+}
+
+.employee-action-page .sizes span {
+  font-weight: 700;
+  color: #1f2937;
+}
+
+/* Sales Breakdown */
+.employee-action-page .breakdown-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 15px;
+}
+
+.employee-action-page .sales-breakdown .breakdown-grid {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.employee-action-page .online-breakdown .breakdown-grid {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.employee-action-page .breakdown-card {
+  padding: 15px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+
+.employee-action-page .breakdown-amount {
+  font-size: 22px;
+  font-weight: 700;
+  color: #1f2937;
+  margin-bottom: 5px;
+}
+
+.employee-action-page .breakdown-type {
+  font-size: 13px;
+  color: #1f2937;
+  margin-bottom: 5px;
+}
+
+.employee-action-page .breakdown-transactions {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.employee-action-page .breakdown-transactions span {
+  font-weight: 700;
+  color: #1f2937;
+}
+
+/* Tables */
+.employee-action-page .data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.employee-action-page .data-table thead {
+  background-color: #f9fafb;
+}
+
+.employee-action-page .data-table th {
+  padding: 10px;
+  text-align: left;
+  font-weight: 600;
+  color: #6b7280;
+  font-size: 11px;
+  text-transform: uppercase;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.employee-action-page .data-table td {
+  padding: 12px 10px;
+  border-bottom: 1px solid #f3f4f6;
+  color: #374151;
+}
+
+.employee-action-page .data-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.employee-action-page .section-subtitle {
+  font-size: 13px;
+  color: #6b7280;
+  margin: 0 0 15px 0;
+}
+
+.employee-action-page .right-section .card {
+  width: 100%;
+}
+
+.employee-action-page .right-section .expenses,
+.employee-action-page .right-section .deposit,
+.employee-action-page .right-section .staffing,
+.employee-action-page .right-section .online-breakdown {
+  min-width: 0;
+}
+
+.employee-action-page .right-section .breakdown-grid {
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+}
+
+/* Scrollbar styling - SCOPED to employee page only */
+.employee-action-page .checklist-items::-webkit-scrollbar {
+  width: 6px;
+}
+
+.employee-action-page .checklist-items::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+.employee-action-page .checklist-items::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 5px;
+}
+
+/* Responsive */
+@media (max-width: 1200px) {
+  .employee-action-page .page-content {
+    grid-template-columns: 1fr;
+  }
+  
+  .employee-action-page .left-section {
+    max-width: 100%;
+  }
+  
+  .employee-action-page .sales-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .employee-action-page .breakdown-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .employee-action-page .header-right {
+    flex-wrap: wrap;
+  }
+  
+  .employee-action-page .sales-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .employee-action-page .breakdown-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .employee-action-page .page-content {
+    padding: 15px;
+    grid-template-columns: 1fr;
+  }
+  
+  .employee-action-page .card {
+    padding: 15px;
+  }
+}
