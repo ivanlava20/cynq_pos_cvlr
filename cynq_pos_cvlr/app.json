@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "cynq_pos_cvlr",
-    "slug": "cynq_pos_cvlr",
+    "name": "cynq_pos_base",
+    "slug": "cynq_pos_base",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",

@@ -1,5 +1,5 @@
 {
-  "name": "cynq_pos_cvlr",
+  "name": "cynq_pos_base",
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
