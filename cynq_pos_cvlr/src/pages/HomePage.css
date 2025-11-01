@@ -28,103 +28,111 @@
 .queue-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   margin-bottom: 20px;
-  gap: 15px;
 }
 
 .queue-header h2 {
+  margin: 0;
   font-size: 24px;
   font-weight: 600;
-  margin: 0;
-  flex-shrink: 0;
 }
 
 .header-actions {
   display: flex;
   gap: 12px;
   align-items: center;
-  flex-wrap: wrap;
 }
 
+/* Time Entry Button */
 .time-entry-btn {
-  background-color: #f59e0b;
-  color: white;
-  border: none;
-  padding: 10px 20px;
-  border-radius: 25px;
-  font-weight: 600;
-  cursor: pointer;
   display: flex;
   align-items: center;
   gap: 8px;
-  white-space: nowrap;
+  padding: 10px 16px;
+  background: #fbbf24;
+  color: #78350f;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
   font-size: 14px;
-  transition: all 0.3s;
-  box-shadow: 0 2px 4px rgba(245, 158, 11, 0.3);
+  cursor: pointer;
+  transition: all 0.2s;
 }
 
 .time-entry-btn:hover {
-  background-color: #d97706;
-  box-shadow: 0 4px 6px rgba(245, 158, 11, 0.4);
+  background: #f59e0b;
+  transform: translateY(-1px);
 }
 
+.time-entry-btn .btn-icon {
+  width: 20px;
+  height: 20px;
+}
+
+/* Mode Toggle */
 .mode-toggle {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  display: flex;
   gap: 0;
-  background-color: #fff;
-  border: 2px solid #e5e7eb;
+  background: #f3f4f6;
   border-radius: 8px;
-  overflow: hidden;
+  padding: 4px;
 }
 
 .mode-btn {
-  background-color: #fff;
-  color: #374151;
-  border: none;
-  padding: 10px 20px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  transition: all 0.3s;
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 6px;
-  border-right: 1px solid #e5e7eb;
-  white-space: nowrap;
+  padding: 8px 16px;
+  background: transparent;
+  color: #6b7280;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
 }
 
-.mode-btn:last-child {
-  border-right: none;
+.mode-btn:hover {
+  background: rgba(255, 255, 255, 0.5);
 }
 
 .mode-btn.active {
-  background-color: #1f2937;
-  color: white;
+  background: white;
+  color: #1f2937;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
-.mode-btn:hover:not(.active) {
-  background-color: #f9fafb;
+.mode-btn .btn-icon {
+  width: 18px;
+  height: 18px;
 }
 
+/* Logout Button */
 .logout-btn {
-  background-color: #fff;
-  color: #374151;
-  border: 2px solid #e5e7eb;
-  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: #ef4444;
+  color: white;
+  border: none;
   border-radius: 8px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s;
+  font-weight: 600;
   font-size: 14px;
-  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.2s;
 }
 
 .logout-btn:hover {
-  background-color: #f9fafb;
-  border-color: #d1d5db;
+  background: #dc2626;
+  transform: translateY(-1px);
+}
+
+.logout-btn .btn-icon {
+  width: 20px;
+  height: 20px;
 }
 
 .queue-tabs {
@@ -770,6 +778,165 @@
   .right-section {
     border-left: none;
     border-top: 1px solid #e0e0e0;
+  }
+}
+
+/* Queue Header Actions */
+.queue-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.queue-header h2 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.header-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+/* Time Entry Button */
+.time-entry-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: #fbbf24;
+  color: #78350f;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.time-entry-btn:hover {
+  background: #f59e0b;
+  transform: translateY(-1px);
+}
+
+.time-entry-btn .btn-icon {
+  width: 20px;
+  height: 20px;
+}
+
+/* Mode Toggle */
+.mode-toggle {
+  display: flex;
+  gap: 0;
+  background: #f3f4f6;
+  border-radius: 8px;
+  padding: 4px;
+}
+
+.mode-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: transparent;
+  color: #6b7280;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.mode-btn:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.mode-btn.active {
+  background: white;
+  color: #1f2937;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.mode-btn .btn-icon {
+  width: 18px;
+  height: 18px;
+}
+
+/* Logout Button */
+.logout-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: #ef4444;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.logout-btn:hover {
+  background: #dc2626;
+  transform: translateY(-1px);
+}
+
+.logout-btn .btn-icon {
+  width: 20px;
+  height: 20px;
+}
+
+/* Responsive Header Actions */
+@media (max-width: 1200px) {
+  .header-actions {
+    flex-wrap: wrap;
+  }
+  
+  .time-entry-btn,
+  .mode-btn,
+  .logout-btn {
+    font-size: 12px;
+    padding: 8px 12px;
+  }
+  
+  .time-entry-btn .btn-icon,
+  .logout-btn .btn-icon {
+    width: 16px;
+    height: 16px;
+  }
+  
+  .mode-btn .btn-icon {
+    width: 16px;
+    height: 16px;
+  }
+}
+
+@media (max-width: 768px) {
+  .queue-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  
+  .header-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+  
+  .mode-toggle {
+    order: -1;
+    width: 100%;
+  }
+  
+  .mode-btn {
+    flex: 1;
+    justify-content: center;
   }
 }
 
