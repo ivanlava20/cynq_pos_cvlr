@@ -1,11 +1,35 @@
+export { default } from './HomePage.native';
+/*
 import React, { useState } from 'react';
 import { useNavigation } from '@react-navigation/native';
-import { ArrowUpRightIcon } from "@heroicons/react/24/outline";
+import {
+  ArrowUpRightIcon,
+  ClockIcon,
+  HomeIcon,
+  UserGroupIcon,
+  ArrowRightOnRectangleIcon
+} from "@heroicons/react/24/outline";
 import OrderCheckoutModal from '../components/modal/OrderCheckoutModal';
 import CustomizationModal from '../components/modal/CustomizationModal';
 import OrderDetailsModal from '../components/modal/OrderDetailsModal';
 import TimeEntryModal from '../components/modal/TimeEntryModal';
 import { store } from '../config/env';
+import { loadQueueSummary } from '../processes/loadQueueSummary';
+import { loadHomePageReferences } from '../processes/orders';
+import { loadEmployeeList } from '../processes/employees';
+import { updateOrderStatus } from '../processes/updateOrderStatus';
+import { completeOrder } from '../processes/completeOrder';
+import { getStoredItem } from '../utils/storage';
+import {
+  DEFAULT_ADD_ONS,
+  DEFAULT_CONSUME_METHODS,
+  DEFAULT_DISCOUNTS,
+  DEFAULT_EMPLOYEES,
+  DEFAULT_MENU_CATEGORIES,
+  DEFAULT_NOTES,
+  DEFAULT_ORDER_MODES,
+  DEFAULT_VOUCHERS
+} from '../utils/constants';
 import './HomePage.css';
 
 const HomePage = () => {
@@ -212,106 +236,93 @@ const HomePage = () => {
     });
   };
 
+  // Simplified queueItems with only essential data
+  const [queueItems, setQueueItems] = useState([]);
+
   // Initialize elapsed times when component mounts
   React.useEffect(() => {
     const initialTimes = {};
     queueItems.forEach(order => {
       if (order.orderStatus === 'MAKE') {
-        // Parse initial time (e.g., "1:00" to seconds)
-        const [minutes, seconds] = order.time.split(':').map(Number);
-        initialTimes[order.id] = minutes * 60 + seconds;
+        const [minutes, seconds] = String(order.time || '0:00').split(':').map(Number);
+        initialTimes[order.id] = ((Number.isNaN(minutes) ? 0 : minutes) * 60) + (Number.isNaN(seconds) ? 0 : seconds);
       }
     });
     setElapsedTimes(initialTimes);
-  }, []);
+  }, [queueItems]);
 
-  //Simplified queueItems with only essential data
-  const [queueItems, setQueueItems] = useState([
-    { 
-      id: 'GB002', 
-      name: 'Mikaela', 
-      items: 2, 
-      time: '0:00', 
-      orderMode: 'Grab', 
-      color: 'green', 
-      orderStatus: 'MAKE',
-      orderNo: 'GB002',
-      orderDate: '2024-10-28',
-      branchCode: 'BR001'
-    },
-    { 
-      id: 'GB001', 
-      name: 'John Doe', 
-      items: 1, 
-      time: '5:00', 
-      orderMode: 'Grab', 
-      color: 'green', 
-      orderStatus: 'DONE',
-      orderNo: 'GB001',
-      orderDate: '2024-10-28',
-      branchCode: 'BR001'
-    },
-    { 
-      id: 'OS001', 
-      name: 'Ivan Lava', 
-      items: 3, 
-      time: '0:00', 
-      orderMode: 'Dine In', 
-      color: 'orange', 
-      orderStatus: 'MAKE',
-      orderNo: 'OS001',
-      orderDate: '2024-10-28',
-      branchCode: 'BR001'
-    },
-    { 
-      id: 'FP001', 
-      name: 'Maria Cruz', 
-      items: 2, 
-      time: '0:00', 
-      orderMode: 'Foodpanda', 
-      color: 'pink', 
-      orderStatus: 'MAKE',
-      orderNo: 'FP001',
-      orderDate: '2024-10-28',
-      branchCode: 'BR001'
-    }
-  ]);
+  React.useEffect(() => {
+    let unsubscribe = () => {};
+
+    const attachListener = async () => {
+      unsubscribe = await loadQueueSummary(store.branchCode, (items) => {
+        setQueueItems(items || []);
+      });
+    };
+
+    attachListener();
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
 
   const [isOrderDetailsModalOpen, setIsOrderDetailsModalOpen] = useState(false);
   const [selectedOrderDetails, setSelectedOrderDetails] = useState(null);
 
   // Handle Done button
-  const handleDone = (orderId) => {
-    const currentTime = new Date().toLocaleTimeString('en-US', { hour12: false });
-    
-    setQueueItems(prevItems =>
-      prevItems.map(item =>
-        item.id === orderId
-          ? {
-              ...item,
-              orderStatus: 'DONE',
-              time: elapsedTimes[orderId] ? formatTime(elapsedTimes[orderId]) : item.time
-            }
-          : item
-      )
-    );
+  const handleDone = async (orderId) => {
+    try {
+      const order = queueItems.find(item => item.id === orderId);
+      if (!order) {
+        alert('Order not found');
+        return;
+      }
+
+      const result = await updateOrderStatus(
+        order.orderNo,
+        order.id,
+        order.branchCode,
+        'DONE',
+        ''
+      );
+
+      if (!result.success) {
+        alert(result.message || 'Failed to mark order as done');
+      }
+    } catch (error) {
+      console.error('Error marking order done:', error);
+      alert('Failed to mark order as done.');
+    }
   };
 
   // Handle Void button
-  const handleVoid = (orderId) => {
-    const currentTime = new Date().toLocaleTimeString('en-US', { hour12: false });
-    
-    setQueueItems(prevItems =>
-      prevItems.map(item =>
-        item.id === orderId
-          ? {
-              ...item,
-              orderStatus: 'VOID',
-              time: elapsedTimes[orderId] ? formatTime(elapsedTimes[orderId]) : item.time
-            }
-          : item
-      )
-    );
+  const handleVoid = async (orderId) => {
+    const reason = window.prompt('Void reason:');
+    if (!reason) return;
+
+    try {
+      const order = queueItems.find(item => item.id === orderId);
+      if (!order) {
+        alert('Order not found');
+        return;
+      }
+
+      const result = await updateOrderStatus(
+        order.orderNo,
+        order.id,
+        order.branchCode,
+        'VOID',
+        reason
+      );
+
+      if (!result.success) {
+        alert(result.message || 'Failed to void order');
+      }
+    } catch (error) {
+      console.error('Error voiding order:', error);
+      alert('Failed to void order.');
+    }
   };
 
   // Handle Items button - only pass essential data to fetch full details
@@ -434,80 +445,19 @@ const HomePage = () => {
 
   const totalValue = subtotalValue - (parseFloat(discountAmount) || 0);
 
-  //Retrieve from Firebase
-  const discountsList = [
-    { discountAmount: '20', discountCd: 'P20', discountDesc: "20%" , discountType: 'PERC'},
-  ]
-
-  //Retrieve from Firebase
-  const vouchersList = [
-    { voucherAmount: '50', voucherCd: 'V50', voucherDesc: "50 PESOS DISCOUNT" , voucherType: 'CASH'},
-    { voucherAmount: '10', voucherCd: 'CVLRPRMO', voucherDesc: "CAFE VANLEROE PROMO CODE" , voucherType: 'PERC'},
-  ]
-
-  //Retrieve from Firebase
-  const orderModesList = [
-    {orderModeCode: 'GB', orderModeDesc: 'Grab'},
-    {orderModeCode: 'OS', orderModeDesc: 'On-Site'},
-    {orderModeCode: 'FP', orderModeDesc: 'Foodpanda'},
-    {orderModeCode: 'KI', orderModeDesc: 'Kiosk'},
-    {orderModeCode: 'FD', orderModeDesc: 'Free Drink'},
-    {orderModeCode: 'FB', orderModeDesc: 'Facebook'}
-  ]
-
-  //Retrieve from Firebase
-  const menuCategories = [
-    { itemCategoryCode: 'TEA', itemCategoryDesc: 'Tea', hasSize: 'Y' },
-    { itemCategoryCode: 'HCD', itemCategoryDesc: 'Hot and Cold Drinks', hasSize: 'Y' },
-    { itemCategoryCode: 'NCB', itemCategoryDesc: 'Non-Coffee Based Blended Beverage', hasSize: 'Y' },
-    { itemCategoryCode: 'CBB', itemCategoryDesc: 'Coffee Based Blended Beverage', hasSize: 'Y' },
-    { itemCategoryCode: 'COL', itemCategoryDesc: 'Coolers', hasSize: 'Y' },
-    { itemCategoryCode: 'FOD', itemCategoryDesc: 'Food', hasSize: 'N' },
-    { itemCategoryCode: 'PST', itemCategoryDesc: 'Pastries', hasSize: 'N' },
- ]
-
-
-  //Retrieve from Firebase
-  const consumeMethodsList = [
-    { consumeMethodCode: 'DINE', consumeMethodDesc: 'Dine In' },
-    { consumeMethodCode: 'TAKE', consumeMethodDesc: 'Take Out' },
-    { consumeMethodCode: 'DELI', consumeMethodDesc: 'Delivery' },
-    { consumeMethodCode: 'ONLN', consumeMethodDesc: 'Online Delivery Apps' },
-    { consumeMethodCode: 'PICK', consumeMethodDesc: 'Pick-Up' }
-  ]
-
-
-  //Retrieve from Firebase
-  const addOnsList = [
-    { addOnCode: 'OAT', addOnDesc: 'Oat Milk', addOnPrice: 15 },
-    { addOnCode: 'COC', addOnDesc: 'Coco Powder', addOnPrice: 50 },
-    { addOnCode: 'VAN', addOnDesc: 'Vanilla', addOnPrice: 20 },
-    { addOnCode: 'SUG', addOnDesc: 'Sugar', addOnPrice: 35 }
-
-  ]
-
-  //Retrieve from Firebase
-  const employeeList = [
-    { employeeId: 'EMPM001', employeeName: 'Ivan Lava' },
-    { employeeId: 'EMPM002', employeeName: 'Maria Clara' },
-    { employeeId: 'EMPO001', employeeName: 'John Doe' },
-  ]
-
-  //Retrieve from Firebase
-  const notesList = [
-    {noteId: 1, noteDesc: 'No Sugar'},
-    {noteId: 2, noteDesc: 'Less Sugar'},
-    {noteId: 3, noteDesc: 'No Ice'},
-    {noteId: 4, noteDesc: 'Less Ice'},
-    {noteId: 5, noteDesc: 'Hot'},
-    {noteId: 6, noteDesc: 'Cold'}
-  ]
-
-  //In here add a listener to check if there is an update in the menu items
+  // Retrieve from Firebase through process methods (defaults retained)
+  const [discountsList, setDiscountsList] = useState(DEFAULT_DISCOUNTS);
+  const [vouchersList, setVouchersList] = useState(DEFAULT_VOUCHERS);
+  const [orderModesList, setOrderModesList] = useState(DEFAULT_ORDER_MODES);
+  const [menuCategories, setMenuCategories] = useState(DEFAULT_MENU_CATEGORIES);
+  const [consumeMethodsList, setConsumeMethodsList] = useState(DEFAULT_CONSUME_METHODS);
+  const [addOnsList, setAddOnsList] = useState(DEFAULT_ADD_ONS);
+  const [employeeList, setEmployeeList] = useState(DEFAULT_EMPLOYEES);
+  const [notesList, setNotesList] = useState(DEFAULT_NOTES);
 
   /* This should be a one time load */
-  //Retrieve from Firebase
-  const menuItemsList = [
+  // Retrieve from Firebase (fallback list retained)
+  const fallbackMenuItemsList = [
     {
         productName: 'Spanish Latte',
         categoryCode: 'HCD',
@@ -564,7 +514,68 @@ const HomePage = () => {
         ]
     },
     
-  ]
+  ];
+
+  const [menuItemsList, setMenuItemsList] = useState(fallbackMenuItemsList);
+
+  React.useEffect(() => {
+    let isMounted = true;
+
+    const loadReferences = async () => {
+      const [referencesResult, employeesResult] = await Promise.all([
+        loadHomePageReferences(store.branchCode),
+        loadEmployeeList(store.branchCode)
+      ]);
+
+      if (!isMounted) return;
+
+      if (referencesResult.success && referencesResult.data) {
+        const refs = referencesResult.data;
+
+        if (Array.isArray(refs.discountsList) && refs.discountsList.length) {
+          setDiscountsList(refs.discountsList);
+        }
+
+        if (Array.isArray(refs.vouchersList) && refs.vouchersList.length) {
+          setVouchersList(refs.vouchersList);
+        }
+
+        if (Array.isArray(refs.orderModesList) && refs.orderModesList.length) {
+          setOrderModesList(refs.orderModesList);
+        }
+
+        if (Array.isArray(refs.menuCategories) && refs.menuCategories.length) {
+          setMenuCategories(refs.menuCategories);
+        }
+
+        if (Array.isArray(refs.consumeMethodsList) && refs.consumeMethodsList.length) {
+          setConsumeMethodsList(refs.consumeMethodsList);
+        }
+
+        if (Array.isArray(refs.addOnsList) && refs.addOnsList.length) {
+          setAddOnsList(refs.addOnsList);
+        }
+
+        if (Array.isArray(refs.notesList) && refs.notesList.length) {
+          setNotesList(refs.notesList);
+        }
+
+        if (Array.isArray(refs.menuItemsList) && refs.menuItemsList.length) {
+          setMenuItemsList(refs.menuItemsList);
+        }
+      }
+
+      if (employeesResult.success && Array.isArray(employeesResult.data) && employeesResult.data.length) {
+        setEmployeeList(employeesResult.data);
+      }
+    };
+
+    loadReferences();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const handleLogout = () => {
     navigation.navigate('Login');
@@ -682,6 +693,7 @@ const HomePage = () => {
 
   // Update handleCompleteOrder validation
   const handleCompleteOrder = () => {
+    (async () => {
     // Validation checks
     if (!customerName || customerName.trim() === '') {
       alert('Please enter Customer Name');
@@ -699,13 +711,15 @@ const HomePage = () => {
     const orderNo = generateOrderNumber();
 
     // Prepare order details
+    const currentEmployee = JSON.parse((await getStoredItem('currentEmployee')) || '{}');
+
     const orderDetailsData = {
       consumeMethod: consumeMethod,
       orderDate: getCurrentDate(),
       orderMode: orderMode,
       orderNo: orderNo,
       orderNote: orderNote || '',
-      orderTakenBy: 'Current User', // Replace with actual logged-in user
+      orderTakenBy: currentEmployee.name || 'Unknown',
       orderTime: getCurrentTime()
     };
 
@@ -812,12 +826,15 @@ const HomePage = () => {
     console.log(`Order Time: ${getCurrentTime()}`);
     console.log('===========================\n');
 
-    // For FP, FD, GB - directly process the order without payment modal
-    // TODO: Send completeOrderObject to Firebase or backend here
-    
-    // Clear the order after processing
-    alert('Order completed successfully!\nCheck console for complete order data.');
-    handleCancelOrder();
+    const result = await completeOrder(completeOrderObject);
+
+    if (result.success) {
+      alert('Order completed successfully!');
+      handleCancelOrder();
+    } else {
+      alert(result.message || 'Failed to complete order.');
+    }
+    })();
   };
 
   // Update handleCompleteCheckout validation
@@ -946,23 +963,27 @@ const HomePage = () => {
                 className="time-entry-btn"
                 onClick={() => setIsTimeEntryModalOpen(true)}
               >
-                ⊕ TIME ENTRY SCAN
+                <ClockIcon className="btn-icon" />
+                TIME ENTRY SCAN
               </button>
               <div className="mode-toggle">
                 <button 
                   className={`mode-btn ${activeMode === 'Main' ? 'active' : ''}`}
                   onClick={() => setActiveMode('Main')}
                 >
-                  ⭐ Main
+                  <HomeIcon className="btn-icon" />
+                  Main
                 </button>
                 <button 
                   className={`mode-btn ${activeMode === 'Employee' ? 'active' : ''}`}
                   onClick={handleEmployeeMode}
                 >
+                  <UserGroupIcon className="btn-icon" />
                   Employee
                 </button>
               </div>
               <button className="logout-btn" onClick={handleLogout}>
+                <ArrowRightOnRectangleIcon className="btn-icon" />
                 Logout
               </button>
             </div>
@@ -1350,3 +1371,4 @@ const HomePage = () => {
 };
 
 export default HomePage;
+*/
