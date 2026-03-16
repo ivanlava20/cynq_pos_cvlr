@@ -1,11 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigation } from '@react-navigation/native';
-import { ArrowUpRightIcon,
-    ClockIcon, 
-  HomeIcon, 
-  UserGroupIcon, 
-  ArrowRightOnRectangleIcon
- } from "@heroicons/react/24/outline";
+import { ArrowUpRightIcon } from "@heroicons/react/24/outline";
 import OrderCheckoutModal from '../components/modal/OrderCheckoutModal';
 import CustomizationModal from '../components/modal/CustomizationModal';
 import OrderDetailsModal from '../components/modal/OrderDetailsModal';
@@ -951,27 +946,23 @@ const HomePage = () => {
                 className="time-entry-btn"
                 onClick={() => setIsTimeEntryModalOpen(true)}
               >
-                <ClockIcon className="btn-icon" />
-                TIME ENTRY SCAN
+                ⊕ TIME ENTRY SCAN
               </button>
               <div className="mode-toggle">
                 <button 
                   className={`mode-btn ${activeMode === 'Main' ? 'active' : ''}`}
                   onClick={() => setActiveMode('Main')}
                 >
-                  <HomeIcon className="btn-icon" />
-                  Main
+                  ⭐ Main
                 </button>
                 <button 
                   className={`mode-btn ${activeMode === 'Employee' ? 'active' : ''}`}
                   onClick={handleEmployeeMode}
                 >
-                  <UserGroupIcon className="btn-icon" />
                   Employee
                 </button>
               </div>
               <button className="logout-btn" onClick={handleLogout}>
-                <ArrowRightOnRectangleIcon className="btn-icon" />
                 Logout
               </button>
             </div>
