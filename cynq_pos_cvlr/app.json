@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "cynq_pos_cvlr",
-    "slug": "cynq_pos_cvlr",
+    "slug": "cynq-cvlr-pos",
     "version": "1.0.0",
     "orientation": "landscape",
     "icon": "./assets/icon.png",
@@ -20,10 +20,17 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "com.ivanlava.cynq_pos_cvlr"
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "c14af685-3ff5-4639-a7ca-823bf4a333a1"
+      }
+    },
+    "owner": "cafevanleroe-prod"
   }
 }

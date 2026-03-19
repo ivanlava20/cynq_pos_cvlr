@@ -69,18 +69,28 @@ const OrderCheckoutModal = ({ isOpen, onClose, payload, onConfirm, docked = fals
 
   const handleConfirm = () => {
     if (!paymentMethods.length) {
-      onConfirm?.([
+      const fallbackPayments = [
         {
           id: 1,
           modeOfPayment: 'CASH',
           paymentAmount: orderTotal,
           referenceNumber: ''
         }
-      ]);
+      ];
+
+      onConfirm?.([
+        ...fallbackPayments
+      ], true, {
+        orderChange: 0,
+        orderPaymentTotalAmount: orderTotal
+      });
       return;
     }
 
-    onConfirm?.(paymentMethods);
+    onConfirm?.(paymentMethods, true, {
+      orderChange: change,
+      orderPaymentTotalAmount: totalPaid
+    });
   };
 
   const content = (

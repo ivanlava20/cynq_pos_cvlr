@@ -1,11 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { fetchOrderDetails } from '../../processes/fetchOrderDetails';
 
 const OrderDetailsModal = ({ isOpen, onClose, orderData, onDone, onVoid }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [fullOrderData, setFullOrderData] = useState(null);
+  const [isVoidReasonOpen, setIsVoidReasonOpen] = useState(false);
+  const [voidReason, setVoidReason] = useState('');
+  const [voidReasonError, setVoidReasonError] = useState('');
 
   useEffect(() => {
     if (!isOpen || !orderData) return;
@@ -39,16 +42,37 @@ const OrderDetailsModal = ({ isOpen, onClose, orderData, onDone, onVoid }) => {
   const orderStatus = useMemo(() => fullOrderData?.queueDetails?.orderStatus || orderData?.orderStatus || '', [fullOrderData, orderData]);
   const showActions = orderStatus === 'MAKE';
 
+  const closeVoidReasonModal = () => {
+    setIsVoidReasonOpen(false);
+    setVoidReason('');
+    setVoidReasonError('');
+  };
+
   const handleDonePress = async () => {
     if (!onDone || !orderData?.id) return;
     const success = await onDone(orderData.id);
     if (success) onClose?.();
   };
 
-  const handleVoidPress = async () => {
+  const handleVoidPress = () => {
+    setVoidReason('');
+    setVoidReasonError('');
+    setIsVoidReasonOpen(true);
+  };
+
+  const handleVoidConfirmPress = async () => {
     if (!onVoid || !orderData?.id) return;
-    const success = await onVoid(orderData.id);
-    if (success) onClose?.();
+    const trimmedReason = String(voidReason || '').trim();
+    if (!trimmedReason) {
+      setVoidReasonError('Void reason is required.');
+      return;
+    }
+
+    const success = await onVoid(orderData.id, trimmedReason);
+    if (success) {
+      closeVoidReasonModal();
+      onClose?.();
+    }
   };
 
   return (
@@ -111,6 +135,34 @@ const OrderDetailsModal = ({ isOpen, onClose, orderData, onDone, onVoid }) => {
             </>
           )}
         </View>
+
+        <Modal visible={isVoidReasonOpen} transparent animationType="fade" onRequestClose={closeVoidReasonModal}>
+          <View style={styles.voidOverlay}>
+            <View style={styles.voidCard}>
+              <Text style={styles.voidTitle}>Void Reason</Text>
+              <TextInput
+                style={styles.voidInput}
+                placeholder="Enter reason for voiding this order"
+                value={voidReason}
+                onChangeText={(value) => {
+                  setVoidReason(value);
+                  if (voidReasonError) setVoidReasonError('');
+                }}
+                multiline
+              />
+              {voidReasonError ? <Text style={styles.voidErrorText}>{voidReasonError}</Text> : null}
+
+              <View style={styles.voidActionsRow}>
+                <TouchableOpacity style={styles.voidBackBtn} onPress={closeVoidReasonModal}>
+                  <Text style={styles.btnText}>Back</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.voidConfirmBtn} onPress={handleVoidConfirmPress}>
+                  <Text style={styles.btnText}>Confirm</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </View>
     </Modal>
   );
@@ -236,6 +288,64 @@ const styles = StyleSheet.create({
   btnText: {
     color: '#ffffff',
     fontWeight: '700'
+  },
+  voidOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16
+  },
+  voidCard: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: '#fffdf8',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#f59e0b33',
+    padding: 14
+  },
+  voidTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#111111',
+    marginBottom: 8
+  },
+  voidInput: {
+    borderWidth: 1,
+    borderColor: '#11111133',
+    borderRadius: 10,
+    backgroundColor: '#fffdf9',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    minHeight: 90,
+    textAlignVertical: 'top'
+  },
+  voidErrorText: {
+    color: '#dc2626',
+    fontWeight: '600',
+    marginTop: 6
+  },
+  voidActionsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 12
+  },
+  voidBackBtn: {
+    flex: 1,
+    borderRadius: 11,
+    paddingVertical: 11,
+    backgroundColor: '#111111',
+    alignItems: 'center'
+  },
+  voidConfirmBtn: {
+    flex: 1,
+    borderRadius: 11,
+    paddingVertical: 11,
+    backgroundColor: '#f59e0b',
+    borderWidth: 1,
+    borderColor: '#e78f00',
+    alignItems: 'center'
   }
 });
 

@@ -30,6 +30,9 @@ export const fetchDailySales = async (branchCode, orderDate = getCurrentPhilippi
     let totalSale = 0;
     let transactionCount = 0;
     let totalCupsSold = 0;
+    let small = 0;
+    let medium = 0;
+    let large = 0;
     let foodSold = 0;
     let pastriesSold = 0;
 
@@ -48,9 +51,14 @@ export const fetchDailySales = async (branchCode, orderDate = getCurrentPhilippi
         const qty = Number(item.itemQuantity || 0);
         totalCupsSold += qty;
 
+        const size = String(item.itemSize || '').trim().toUpperCase();
+        if (size === 'S') small += qty;
+        if (size === 'M') medium += qty;
+        if (size === 'L') large += qty;
+
         const category = String(item.itemCategory || '').toUpperCase();
-        if (category.includes('FOOD')) foodSold += qty;
-        if (category.includes('PASTRY')) pastriesSold += qty;
+        if (category === 'FOD' || category.includes('FOOD')) foodSold += qty;
+        if (category === 'PST' || category.includes('PASTRY')) pastriesSold += qty;
       });
 
       (data.paymentMethods || []).forEach((pay) => {
@@ -66,6 +74,9 @@ export const fetchDailySales = async (branchCode, orderDate = getCurrentPhilippi
         totalSale,
         transactionCount,
         totalCupsSold,
+        small,
+        medium,
+        large,
         foodSold,
         pastriesSold,
         paymentSummary

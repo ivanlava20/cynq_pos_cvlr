@@ -107,7 +107,7 @@ export const loadQueueSummary = async (branchCode, callback) => {
         snapshot.forEach((doc) => {
           const data = doc.data();
 
-          if (data.orderMode === 'FD') return;
+          //if (data.orderMode === 'FD') return;
 
           const queueItem = {
             id: data.mainDetails?.transactionId || doc.id,

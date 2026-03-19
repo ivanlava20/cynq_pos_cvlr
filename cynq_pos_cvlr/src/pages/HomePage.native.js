@@ -25,12 +25,14 @@ import { fetchOrderNotes } from '../processes/fetchOrderNotes';
 import { fetchConsumeMethods } from '../processes/fetchConsumeMethods';
 import { fetchDiscounts } from '../processes/fetchDiscounts';
 import { fetchVouchers } from '../processes/fetchVouchers';
+import { fetchOrderPerCustomer } from '../processes/fetchOrderPerCustomer';
 import { processSpecialDiscount } from '../processes/processSpecialDiscount';
 import { updateOrderStatus } from '../processes/updateOrderStatus';
 import { completeOrder } from '../processes/completeOrder';
 import OrderCheckoutModal from '../components/modal/OrderCheckoutModal';
 import OrderDetailsModal from '../components/modal/OrderDetailsModal.native';
 import { getStoredItem } from '../utils/storage';
+import { printReceipt } from '../utils/printReceipt';
 import {
   DEFAULT_ADD_ONS,
   DEFAULT_CONSUME_METHODS,
@@ -142,6 +144,7 @@ const HomePage = () => {
     const dd = String(now.getDate()).padStart(2, '0');
     return `${yyyy}-${mm}-${dd}`;
   };
+  const getCurrentPhilippineDate = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
   const getCurrentTime = () => new Date().toTimeString().split(' ')[0];
   const generateOrderNumber = () => `${orderMode}${Date.now().toString().slice(-4)}`;
 
@@ -287,6 +290,15 @@ const HomePage = () => {
 
   const totalValue = subtotalValue - (parseFloat(discountAmount) || 0);
 
+  const customerNamePrefix = useMemo(() => {
+    if (orderMode === 'FB') return 'FB ';
+    if (orderMode === 'FP') return 'FP ';
+    if (orderMode === 'GB') return 'GB ';
+    return '';
+  }, [orderMode]);
+
+  const shouldShowDiscountDropdown = !['FD', 'GB', 'FP'].includes(orderMode);
+
   const getDisplaySizes = (product) => {
     let sizes = [];
 
@@ -303,9 +315,28 @@ const HomePage = () => {
     return sizes.filter((sizeObj) => Number(sizeObj?.price || 0) > 0);
   };
 
-  const handleSizeSelect = (productId, size) => setSelectedSizes((prev) => ({ ...prev, [productId]: size }));
+  const handleSizeSelect = (productId, size) => setSelectedSizes({ [productId]: size });
   const handleQuantityChange = (productId, change) => {
     setQuantities((prev) => ({ ...prev, [productId]: Math.max(1, (prev[productId] || 1) + change) }));
+  };
+
+  const handleCategoryChange = (categoryCode) => {
+    setSelectedCategory(categoryCode);
+    setSelectedSizes({});
+  };
+
+  const handleCustomerNameChange = (value) => {
+    if (!customerNamePrefix) {
+      setCustomerName(value);
+      return;
+    }
+
+    if (value.startsWith(customerNamePrefix)) {
+      setCustomerName(value.slice(customerNamePrefix.length));
+      return;
+    }
+
+    setCustomerName(value);
   };
 
   const handleQuickAdd = (product) => {
@@ -446,10 +477,11 @@ const HomePage = () => {
     return true;
   };
 
-  const handleVoid = async (orderId) => {
+  const handleVoid = async (orderId, voidReason = '') => {
     const order = queueItems.find((item) => item.id === orderId);
     if (!order) return Alert.alert('Error', 'Order not found');
-    const result = await updateOrderStatus(order.orderNo, order.id, order.branchCode, 'VOID', 'VOIDED IN MOBILE');
+    const reason = String(voidReason || '').trim() || 'VOIDED IN MOBILE';
+    const result = await updateOrderStatus(order.orderNo, order.id, order.branchCode, 'VOID', reason);
     if (!result.success) {
       Alert.alert('Error', result.message || 'Failed to void order');
       return false;
@@ -493,9 +525,32 @@ const HomePage = () => {
     setIsOrderDetailsModalOpen(true);
   };
 
+  const handlePrintQueueReceipt = async (order) => {
+    try {
+      if (!order?.orderNo) {
+        Alert.alert('Error', 'Order number is missing');
+        return;
+      }
+
+      const currentOrderDate = getCurrentPhilippineDate();
+      const rows = await fetchOrderPerCustomer(store.branchCode, currentOrderDate, order.orderNo);
+      const receiptPayload = Array.isArray(rows) ? rows[0] : null;
+
+      if (!receiptPayload) {
+        Alert.alert('Error', 'No order data found for receipt printing');
+        return;
+      }
+
+      await printReceipt(receiptPayload);
+    } catch (error) {
+      Alert.alert('Error', error?.message || 'Failed to print receipt');
+    }
+  };
+
   const handleOrderModeChange = (nextMode) => {
     if (orderItems.length) return Alert.alert('Order in progress', 'Cancel current order before changing order mode.');
     setOrderMode(nextMode);
+    setSelectedSizes({});
   };
 
   const handleDiscountChange = (value) => {
@@ -522,6 +577,7 @@ const HomePage = () => {
 
   const handleCancelOrder = () => {
     setOrderItems([]);
+    setSelectedSizes({});
     setConsumeMethod('');
     setCustomerName('');
     setOrderNote('');
@@ -618,9 +674,16 @@ const HomePage = () => {
   }, [isTimeEntryModalOpen, timeEntryLocation, timeEntryCurrentMinute]);
 
   const handleCompleteOrder = async () => {
+    const normalizedCustomerName = `${customerNamePrefix}${customerName}`.trim();
+    const hasTableNumber = Boolean(String(tableNumber || '').trim());
+    const hasRetekessNumber = Boolean(String(retekessNumber || '').trim());
+
     if (!customerName.trim()) return Alert.alert('Validation', 'Please enter Customer Name');
     if (!consumeMethod) return Alert.alert('Validation', 'Please select Consume Method');
     if (!orderItems.length) return Alert.alert('Validation', 'Please add at least one item');
+    if (orderMode === 'OS' && !hasTableNumber && !hasRetekessNumber) {
+      return Alert.alert('Validation', 'For On Site orders, please provide either Table Number or Retekess Number');
+    }
 
     const currentEmployee = JSON.parse((await getStoredItem('currentEmployee')) || '{}');
 
@@ -651,7 +714,7 @@ const HomePage = () => {
       },
       mainDetails: {
         branchCode: store.branchCode,
-        customerName,
+        customerName: normalizedCustomerName,
         id: generateRandomTransactionId(),
         totalAmount: totalValue.toFixed(2),
         transactionId: generateRandomTransactionId()
@@ -681,18 +744,35 @@ const HomePage = () => {
     handleCancelOrder();
   };
 
-  const handleCheckoutConfirm = async (paymentMethods) => {
+  const handleCheckoutConfirm = async (paymentMethods, shouldPrintReceipt = false, checkoutSummary = {}) => {
     if (!pendingCheckoutPayload) return;
+
+    const orderChangeValue = Number(checkoutSummary?.orderChange || 0);
+    const orderPaymentTotalAmountValue = Number(
+      checkoutSummary?.orderPaymentTotalAmount ||
+      (Array.isArray(paymentMethods)
+        ? paymentMethods.reduce((sum, payment) => sum + Number(payment?.paymentAmount || 0), 0)
+        : 0)
+    );
 
     const payloadToSubmit = {
       ...pendingCheckoutPayload,
-      paymentMethods: Array.isArray(paymentMethods) && paymentMethods.length ? paymentMethods : pendingCheckoutPayload.paymentMethods
+      paymentMethods: Array.isArray(paymentMethods) && paymentMethods.length ? paymentMethods : pendingCheckoutPayload.paymentMethods,
+      orderDetails: {
+        ...(pendingCheckoutPayload.orderDetails || {}),
+        orderChange: orderChangeValue,
+        orderPaymentTotalAmount: orderPaymentTotalAmountValue
+      }
     };
 
     console.log('[HomePage] completeOrder payload:', JSON.stringify(payloadToSubmit, null, 2));
 
     const result = await completeOrder(payloadToSubmit);
     if (!result.success) return Alert.alert('Error', result.message || 'Failed to complete order');
+
+    if (shouldPrintReceipt) {
+      await printReceipt(payloadToSubmit);
+    }
 
     setIsCheckoutModalOpen(false);
     setPendingCheckoutPayload(null);
@@ -717,7 +797,7 @@ const HomePage = () => {
             <Text style={styles.actionButtonText}>Time Entry Scan</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.homeButton} onPress={() => navigation.navigate('Home')}>
-            <Text style={styles.actionButtonText}>Home</Text>
+            <Text style={styles.actionButtonText}>POS</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate('EmployeeAction')}>
             <Text style={styles.actionButtonText}>Employee</Text>
@@ -750,12 +830,15 @@ const HomePage = () => {
                   <Text style={styles.queueMeta}>
                     Time: {order.orderStatus === 'MAKE' && order.isStarted && elapsedTimes[order.id] !== undefined ? formatTime(elapsedTimes[order.id]) : order.time}
                   </Text>
-                  <View style={styles.rowGap}>
+                  <View style={styles.queueActionsRow}>
                     {activeTab === 'MAKE' && !order.isStarted ? (
                       <TouchableOpacity style={styles.startBtn} onPress={() => handleStartOrder(order.id)}>
                         <Text style={styles.smallBtnText}>START ORDER</Text>
                       </TouchableOpacity>
                     ) : null}
+                    <TouchableOpacity style={styles.printBtn} onPress={() => handlePrintQueueReceipt(order)}>
+                      <Text style={styles.smallBtnText}>Print Receipt</Text>
+                    </TouchableOpacity>
                     <TouchableOpacity style={styles.smallBtn} onPress={() => handleViewItems(order)}>
                       <Text style={styles.smallBtnText}>Items</Text>
                     </TouchableOpacity>
@@ -787,7 +870,7 @@ const HomePage = () => {
                 <TouchableOpacity
                   key={category.itemCategoryCode}
                   style={[styles.chip, selectedCategory === category.itemCategoryCode && styles.chipActive]}
-                  onPress={() => setSelectedCategory(category.itemCategoryCode)}
+                  onPress={() => handleCategoryChange(category.itemCategoryCode)}
                 >
                   <Text style={[styles.chipText, selectedCategory === category.itemCategoryCode && styles.chipTextActive]}>{category.itemCategoryDesc}</Text>
                 </TouchableOpacity>
@@ -911,8 +994,8 @@ const HomePage = () => {
                 <TextInput
                   style={[styles.input, orderMode === 'FD' && styles.inputDisabled]}
                   placeholder="Customer Name"
-                  value={customerName}
-                  onChangeText={setCustomerName}
+                  value={`${customerNamePrefix}${customerName}`}
+                  onChangeText={handleCustomerNameChange}
                   editable={orderMode !== 'FD'}
                 />
                 <TextInput
@@ -931,45 +1014,61 @@ const HomePage = () => {
                 </View>
               )}
 
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.selectorScroll}>
-                {getFilteredConsumeMethods().map((method) => (
-                  <TouchableOpacity
-                    key={method.consumeMethodCode}
-                    style={[styles.chip, consumeMethod === method.consumeMethodCode && styles.chipActive]}
-                    onPress={() => setConsumeMethod(method.consumeMethodCode)}
-                  >
-                    <Text style={[styles.chipText, consumeMethod === method.consumeMethodCode && styles.chipTextActive]}>{method.consumeMethodDesc}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-
-              <View style={styles.dropdownBlock}>
-                <TouchableOpacity
-                  style={styles.dropdownTrigger}
-                  onPress={() => setIsDiscountDropdownOpen((prev) => !prev)}
-                >
-                  <Text style={discountCodeInput ? styles.dropdownText : styles.dropdownPlaceholder}>
-                    {discountCodeInput || 'Select Discount/Voucher Code'}
-                  </Text>
-                  <Text style={styles.dropdownCaret}>{isDiscountDropdownOpen ? '▲' : '▼'}</Text>
-                </TouchableOpacity>
-
-                {isDiscountDropdownOpen && (
-                  <View style={styles.dropdownMenu}>
-                    <ScrollView nestedScrollEnabled style={styles.dropdownMenuScroll}>
-                      {discountVoucherOptions.map((option) => (
-                        <TouchableOpacity
-                          key={option.code}
-                          style={styles.dropdownOption}
-                          onPress={() => handleDiscountChange(option.code)}
-                        >
-                          <Text style={styles.dropdownOptionText}>{option.label}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
-                  </View>
-                )}
+              <View style={styles.consumeMethodSection}>
+                <Text style={styles.fieldLabel}>Consume Method</Text>
+                <View style={styles.consumeMethodGrid}>
+                  {getFilteredConsumeMethods().map((method) => (
+                    <TouchableOpacity
+                      key={method.consumeMethodCode}
+                      style={[
+                        styles.consumeMethodBtn,
+                        consumeMethod === method.consumeMethodCode && styles.consumeMethodBtnActive
+                      ]}
+                      onPress={() => setConsumeMethod(method.consumeMethodCode)}
+                    >
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          styles.consumeMethodText,
+                          consumeMethod === method.consumeMethodCode && styles.consumeMethodTextActive
+                        ]}
+                      >
+                        {method.consumeMethodDesc}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
               </View>
+
+              {shouldShowDiscountDropdown ? (
+                <View style={styles.dropdownBlock}>
+                  <TouchableOpacity
+                    style={styles.dropdownTrigger}
+                    onPress={() => setIsDiscountDropdownOpen((prev) => !prev)}
+                  >
+                    <Text style={discountCodeInput ? styles.dropdownText : styles.dropdownPlaceholder}>
+                      {discountCodeInput || 'Select Discount/Voucher Code'}
+                    </Text>
+                    <Text style={styles.dropdownCaret}>{isDiscountDropdownOpen ? '▲' : '▼'}</Text>
+                  </TouchableOpacity>
+
+                  {isDiscountDropdownOpen && (
+                    <View style={styles.dropdownMenu}>
+                      <ScrollView nestedScrollEnabled style={styles.dropdownMenuScroll}>
+                        {discountVoucherOptions.map((option) => (
+                          <TouchableOpacity
+                            key={option.code}
+                            style={styles.dropdownOption}
+                            onPress={() => handleDiscountChange(option.code)}
+                          >
+                            <Text style={styles.dropdownOptionText}>{option.label}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  )}
+                </View>
+              ) : null}
 
               <View style={styles.summaryBox}>
                 <Text style={styles.summaryLine}>Sub Total: ₱{subtotalValue.toFixed(2)}</Text>
@@ -1270,7 +1369,7 @@ const styles = StyleSheet.create({
     paddingBottom: 2
   },
   queueCard: {
-    width: 220,
+    width: 260,
     borderWidth: 1,
     borderColor: '#f59e0b2f',
     borderRadius: 12,
@@ -1280,25 +1379,49 @@ const styles = StyleSheet.create({
   },
   queueTitle: { fontWeight: '800', color: '#111111' },
   queueMeta: { color: '#4b5563', marginTop: 2 },
+  queueActionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8
+  },
   rowGap: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
   smallBtn: {
     backgroundColor: '#f59e0b',
     borderRadius: 9,
-    paddingHorizontal: 10,
+    paddingHorizontal: 8,
     paddingVertical: 8,
     borderWidth: 1,
-    borderColor: '#e78f00'
+    borderColor: '#e78f00',
+    minWidth: 110,
+    flexGrow: 1,
+    alignItems: 'center'
   },
   startBtn: {
     backgroundColor: '#16a34a',
     borderRadius: 9,
-    paddingHorizontal: 10,
+    paddingHorizontal: 8,
     paddingVertical: 8,
     borderWidth: 1,
-    borderColor: '#15803d'
+    borderColor: '#15803d',
+    minWidth: 110,
+    flexGrow: 1,
+    alignItems: 'center'
+  },
+  printBtn: {
+    backgroundColor: '#111111',
+    borderRadius: 9,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: '#111111',
+    minWidth: 110,
+    flexGrow: 1,
+    alignItems: 'center'
   },
   voidBtn: { backgroundColor: '#111111' },
-  smallBtnText: { color: '#fff', fontWeight: '700' },
+  smallBtnText: { color: '#fff', fontWeight: '700', fontSize: 12 },
   chip: {
     borderWidth: 1,
     borderColor: '#11111133',
@@ -1389,6 +1512,37 @@ const styles = StyleSheet.create({
   formSection: { marginTop: 4 },
   employeeSelectionWrap: { marginTop: 8 },
   fieldLabel: { color: '#111111', fontSize: 13, fontWeight: '700', marginBottom: 4 },
+  consumeMethodSection: { marginTop: 12, marginBottom: 2 },
+  consumeMethodGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8
+  },
+  consumeMethodBtn: {
+    flexBasis: '48%',
+    flexGrow: 1,
+    minHeight: 42,
+    borderWidth: 1,
+    borderColor: '#11111133',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ffffff'
+  },
+  consumeMethodBtnActive: {
+    backgroundColor: '#f59e0b',
+    borderColor: '#f59e0b'
+  },
+  consumeMethodText: {
+    color: '#111111',
+    fontWeight: '700',
+    fontSize: 13
+  },
+  consumeMethodTextActive: {
+    color: '#ffffff'
+  },
   selectorScroll: { marginTop: 12, marginBottom: 2 },
   noOrdersWrap: {
     flex: 1,

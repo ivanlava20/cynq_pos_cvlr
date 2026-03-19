@@ -18,7 +18,10 @@ export const fetchMenuCategory = async () => {
 				hasSize: String(row.hasSize ?? '').trim()
 			};
 		})
-		.filter((row) => row.itemCategoryCode && row.itemCategoryDesc);
+		.filter((row) => row.itemCategoryCode && row.itemCategoryDesc)
+		.sort((a, b) =>
+			a.itemCategoryDesc.localeCompare(b.itemCategoryDesc, undefined, { sensitivity: 'base' })
+		);
 };
 
 export default fetchMenuCategory;

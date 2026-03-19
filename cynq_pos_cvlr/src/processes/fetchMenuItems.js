@@ -89,7 +89,8 @@ export const fetchMenuItems = async () => {
 				]
 			};
 		})
-		.filter(Boolean);
+		.filter(Boolean)
+		.sort((a, b) => a.productName.localeCompare(b.productName, undefined, { sensitivity: 'base' }));
 };
 
 export default fetchMenuItems;

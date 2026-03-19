@@ -5,8 +5,8 @@ export const store = {
 };
 
 export const printer = {
-  name: process.env.REACT_APP_PRINTER_NAME || 'BT_PRINTER_MAIN',
-  mac: process.env.REACT_APP_PRINTER_MAC || '00:11:22:33:44:55'
+  name: process.env.REACT_APP_PRINTER_NAME || 'VOZY P50',
+  mac: process.env.REACT_APP_PRINTER_MAC || '5A:4A:48:1C:87:20'
 };
 
 export const firebase = {
