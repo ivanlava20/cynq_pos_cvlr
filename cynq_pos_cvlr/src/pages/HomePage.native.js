@@ -914,10 +914,10 @@ const HomePage = () => {
                           <Text style={styles.qtyBtnText}>+</Text>
                         </TouchableOpacity>
                         <TouchableOpacity style={styles.customizeBtn} onPress={() => handleCustomize(product)}>
-                          <Text style={styles.customizeText}>Customize</Text>
+                          <Text style={styles.customizeText} numberOfLines={1}>Customize</Text>
                         </TouchableOpacity>
                         <TouchableOpacity style={styles.quickAddBtn} onPress={() => handleQuickAdd(product)}>
-                          <Text style={styles.quickAddText}>Quick Add</Text>
+                          <Text style={styles.quickAddText} numberOfLines={1}>Quick Add</Text>
                         </TouchableOpacity>
                       </View>
                     </View>
@@ -1479,25 +1479,31 @@ const styles = StyleSheet.create({
   qtyBtnText: { fontSize: 18, fontWeight: '700', color: '#111111' },
   qtyText: { minWidth: 20, textAlign: 'center', fontWeight: '700', color: '#111111' },
   customizeBtn: {
-    marginLeft: 6,
+    flex: 1,
+    minWidth: 0,
+    flexShrink: 1,
     backgroundColor: '#111111',
     borderRadius: 9,
-    paddingHorizontal: 10,
+    paddingHorizontal: 8,
     paddingVertical: 8,
     borderWidth: 1,
-    borderColor: '#111111'
+    borderColor: '#111111',
+    alignItems: 'center'
   },
-  customizeText: { color: '#fff', fontWeight: '700' },
+  customizeText: { color: '#fff', fontWeight: '700', textAlign: 'center', fontSize: 12 },
   quickAddBtn: {
-    marginLeft: 6,
+    flex: 1,
+    minWidth: 0,
+    flexShrink: 1,
     backgroundColor: '#f59e0b',
     borderRadius: 9,
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
     paddingVertical: 8,
     borderWidth: 1,
-    borderColor: '#e78f00'
+    borderColor: '#e78f00',
+    alignItems: 'center'
   },
-  quickAddText: { color: '#fff', fontWeight: '700' },
+  quickAddText: { color: '#fff', fontWeight: '700', textAlign: 'center', fontSize: 12 },
   orderItemsList: { marginTop: 2 },
   cartItem: {
     borderWidth: 1,

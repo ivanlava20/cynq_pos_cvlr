@@ -2,34 +2,39 @@ import { collection, query, where, getDocs, updateDoc, addDoc } from 'firebase/f
 import { firestore } from '../../firebase.js';
 import { store } from '../config/env';
 
+const PH_TIME_ZONE = 'Asia/Manila';
+
 const getCurrentPhilippineDate = () => {
-  const philippineDate = new Date().toLocaleString('en-US', {
-    timeZone: 'Asia/Manila',
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: PH_TIME_ZONE,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit'
-  });
+  }).formatToParts(new Date());
 
-  const [month, day, year] = philippineDate.split(',')[0].split('/');
-  return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  const month = parts.find((part) => part.type === 'month')?.value || '01';
+  const day = parts.find((part) => part.type === 'day')?.value || '01';
+  const year = parts.find((part) => part.type === 'year')?.value || '1970';
+
+  return `${year}-${month}-${day}`;
 };
 
 const getCurrentPhilippineTime = () => {
-  return new Date().toLocaleString('en-US', {
-    timeZone: 'Asia/Manila',
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: PH_TIME_ZONE,
     hour: '2-digit',
     minute: '2-digit',
     hour12: false
-  });
+  }).format(new Date());
 };
 
 const getCurrentPhilippineTime12Hour = () => {
-  return new Date().toLocaleString('en-US', {
-    timeZone: 'Asia/Manila',
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: PH_TIME_ZONE,
     hour: '2-digit',
     minute: '2-digit',
     hour12: true
-  });
+  }).format(new Date());
 };
 
 const sendEmailNotification = async (templateId, employeeName, branchName, currentTime, currentDate) => {
@@ -113,7 +118,7 @@ export const updateStoreStatus = async (branchCode, employeeName, storeStatus) =
 
     if (storeStatus === 'CLOSED') {
       const storeStatusQuery = query(
-        collection(firestore, 'STORE_STATUS'),
+        collection(firestore, 'CYNQ_POS_STORE_MANAGEMENT'),
         where('branchCode', '==', branchCode),
         where('dateToday', '==', currentDate),
         where('storeStatus', '==', 'OPEN')
@@ -161,7 +166,7 @@ export const updateStoreStatus = async (branchCode, employeeName, storeStatus) =
     }
 
     const storeStatusQuery = query(
-      collection(firestore, 'STORE_STATUS'),
+      collection(firestore, 'CYNQ_POS_STORE_MANAGEMENT'),
       where('branchCode', '==', branchCode),
       where('dateToday', '==', currentDate),
       where('storeStatus', '==', 'CLOSED')
@@ -170,7 +175,7 @@ export const updateStoreStatus = async (branchCode, employeeName, storeStatus) =
     await getDocs(storeStatusQuery);
 
     const openStoreQuery = query(
-      collection(firestore, 'STORE_STATUS'),
+      collection(firestore, 'CYNQ_POS_STORE_MANAGEMENT'),
       where('branchCode', '==', branchCode),
       where('dateToday', '==', currentDate),
       where('storeStatus', '==', 'OPEN')
@@ -202,7 +207,7 @@ export const updateStoreStatus = async (branchCode, employeeName, storeStatus) =
       };
     }
 
-    await addDoc(collection(firestore, 'STORE_STATUS'), {
+    await addDoc(collection(firestore, 'CYNQ_POS_STORE_MANAGEMENT'), {
       branchCode,
       closeTime: null,
       dateToday: currentDate,
@@ -231,7 +236,7 @@ export const canOpenStore = async (branchCode) => {
     const currentDate = getCurrentPhilippineDate();
 
     const openStoreQuery = query(
-      collection(firestore, 'STORE_STATUS'),
+      collection(firestore, 'CYNQ_POS_STORE_MANAGEMENT'),
       where('branchCode', '==', branchCode),
       where('dateToday', '==', currentDate),
       where('storeStatus', '==', 'OPEN')
@@ -258,7 +263,7 @@ export const canCloseStore = async (branchCode) => {
     const currentDate = getCurrentPhilippineDate();
 
     const openStoreQuery = query(
-      collection(firestore, 'STORE_STATUS'),
+      collection(firestore, 'CYNQ_POS_STORE_MANAGEMENT'),
       where('branchCode', '==', branchCode),
       where('dateToday', '==', currentDate),
       where('storeStatus', '==', 'OPEN')

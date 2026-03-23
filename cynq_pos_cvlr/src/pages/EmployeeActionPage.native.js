@@ -1,11 +1,12 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Dimensions,
+  PixelRatio,
   SafeAreaView,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TouchableOpacity,
   View
@@ -17,9 +18,14 @@ import { fetchExpenses } from '../utils/fetchExpenses';
 import { fetchDeposits } from '../utils/fetchDeposits';
 import { fetchEmployeeStaffing } from '../utils/fetchEmployeeStaffing';
 import { fetchDailySales } from '../utils/fetchDailySales';
-import { fetchChecklistItems } from '../utils/fetchChecklistItems';
-import { updateChecklistItem } from '../utils/updateChecklistItem';
+import { fetchChecklistCategories } from '../processes/fetchChecklistCategories';
 import { getStoredItem } from '../utils/storage';
+import DisplayCheckListDetailsModal from '../components/modal/displayCheckListDetailsModal.native';
+
+const SCREEN_WIDTH = Dimensions.get('window').width;
+const WIDTH_SCALE = Math.min(Math.max(SCREEN_WIDTH / 1024, 0.9), 1.25);
+const FONT_SCALE = Math.min(PixelRatio.getFontScale(), 1.2);
+const RF = (size) => Math.round(PixelRatio.roundToNearestPixel((size * WIDTH_SCALE) / FONT_SCALE));
 
 const EmployeeActionPage = ({ navigation }) => {
   const [storeInfo, setStoreInfo] = useState({
@@ -34,7 +40,9 @@ const EmployeeActionPage = ({ navigation }) => {
   const [expenses, setExpenses] = useState([]);
   const [deposits, setDeposits] = useState([]);
   const [staffing, setStaffing] = useState([]);
-  const [checklistItems, setChecklistItems] = useState([]);
+  const [checklistCategories, setChecklistCategories] = useState([]);
+  const [selectedChecklistCategory, setSelectedChecklistCategory] = useState('');
+  const [isChecklistDetailsOpen, setIsChecklistDetailsOpen] = useState(false);
   const [dailySales, setDailySales] = useState({
     totalSale: 0,
     transactionCount: 0,
@@ -55,7 +63,6 @@ const EmployeeActionPage = ({ navigation }) => {
   const [isStaffingLoading, setIsStaffingLoading] = useState(true);
   const [isSalesLoading, setIsSalesLoading] = useState(true);
   const [isChecklistLoading, setIsChecklistLoading] = useState(true);
-  const [isChecklistSubmitting, setIsChecklistSubmitting] = useState(false);
   const [hasStoreUpdates, setHasStoreUpdates] = useState(false);
   const [pendingStoreInfo, setPendingStoreInfo] = useState(null);
 
@@ -78,15 +85,6 @@ const EmployeeActionPage = ({ navigation }) => {
   const hasStoreInfoChanged = (nextInfo = {}, currentInfo = {}) => {
     return JSON.stringify(normalizeStoreInfoForCompare(nextInfo)) !== JSON.stringify(normalizeStoreInfoForCompare(currentInfo));
   };
-
-  const normalizeChecklistItems = (rows) => rows
-    .filter((row) => row.checklistitemCategory !== 'EMPL')
-    .map((row) => ({
-      id: row.checklistItemId,
-      label: row.checklistItem,
-      category: row.checklistitemCategory,
-      completed: String(row.checklistDone || '').toUpperCase() === 'YES'
-    }));
 
   const refreshStoreStatus = async () => {
     setIsStoreLoading(true);
@@ -165,6 +163,8 @@ const EmployeeActionPage = ({ navigation }) => {
       if (result.success) {
         const salesData = result.data || {};
         const paymentSummary = salesData.paymentSummary || {};
+        const paymentBreakdown = salesData.paymentBreakdown || [];
+        const orderModeBreakdown = salesData.orderModeBreakdown || [];
 
         setDailySales({
           totalSale: Number(salesData.totalSale || 0),
@@ -177,20 +177,35 @@ const EmployeeActionPage = ({ navigation }) => {
           pastriesSold: Number(salesData.pastriesSold || 0)
         });
 
-        const toBreakdownRows = (entries) =>
-          entries.map(([type, amount]) => ({
-            type: `${type} Transactions`,
-            amount: Number(amount || 0),
-            transactions: 0
+        const toBreakdownRows = (rows) =>
+          rows.map((row) => ({
+            type: `${row.paymentMethodDesc || row.paymentMethodCode || 'Unknown'} Transactions`,
+            amount: Number(row.amount || 0),
+            transactions: Number(row.transactions || 0),
+            paymentMethodCode: String(row.paymentMethodCode || '').toUpperCase()
           }));
 
-        const onlineKeys = ['GRAB', 'FOODPANDA'];
-        const onlineRows = toBreakdownRows(
-          Object.entries(paymentSummary).filter(([key]) => onlineKeys.includes(String(key).toUpperCase()))
-        );
-        const salesRows = toBreakdownRows(
-          Object.entries(paymentSummary).filter(([key]) => !onlineKeys.includes(String(key).toUpperCase()))
-        );
+        const breakdownRows = toBreakdownRows(paymentBreakdown);
+        const salesRows = breakdownRows;
+
+        const onlineRows = orderModeBreakdown.map((row) => ({
+          type: `${row.orderModeDesc || row.orderModeCode || 'Unknown'} Transactions`,
+          amount: Number(row.amount || 0),
+          transactions: Number(row.transactions || 0)
+        }));
+
+        if (!breakdownRows.length) {
+          const summaryRows = Object.entries(paymentSummary).map(([paymentMethodCode, amount]) => ({
+            type: `${paymentMethodCode} Transactions`,
+            amount: Number(amount || 0),
+            transactions: 0,
+            paymentMethodCode: String(paymentMethodCode || '').toUpperCase()
+          }));
+
+          setSalesBreakdown(summaryRows);
+          setOnlineBreakdown(onlineRows);
+          return;
+        }
 
         setSalesBreakdown(salesRows);
         setOnlineBreakdown(onlineRows);
@@ -203,8 +218,9 @@ const EmployeeActionPage = ({ navigation }) => {
   const refreshChecklist = async () => {
     setIsChecklistLoading(true);
     try {
-      const result = await fetchChecklistItems(store.branchCode);
-      setChecklistItems(result.success ? normalizeChecklistItems(result.data || []) : []);
+      const result = await fetchChecklistCategories();
+      const rows = Array.isArray(result) ? result : [];
+      setChecklistCategories(rows.filter((row) => String(row.checklistitemCategory || '').trim()));
     } finally {
       setIsChecklistLoading(false);
     }
@@ -239,66 +255,9 @@ const EmployeeActionPage = ({ navigation }) => {
     };
   }, []);
 
-  const completedCount = useMemo(
-    () => checklistItems.filter((item) => item.completed).length,
-    [checklistItems]
-  );
-
-  const handleChecklistToggle = (id) => {
-    setChecklistItems((prev) => prev.map((item) => (item.id === id ? { ...item, completed: !item.completed } : item)));
-  };
-
-  const handleCompleteAll = async () => {
-    if (!checklistItems.length || isChecklistSubmitting) return;
-
-    const allCompletedItems = checklistItems.map((item) => ({ ...item, completed: true }));
-    setChecklistItems(allCompletedItems);
-
-    setIsChecklistSubmitting(true);
-    try {
-      const currentEmployee = JSON.parse((await getStoredItem('currentEmployee')) || '{}');
-      const employeeId = currentEmployee.employeeId;
-
-      if (!employeeId) {
-        Alert.alert('Error', 'Employee ID not found. Please log in again.');
-        navigation.navigate('Login');
-        return;
-      }
-
-      const grouped = allCompletedItems.reduce((acc, item) => {
-        if (!acc[item.category]) acc[item.category] = [];
-        acc[item.category].push(item);
-        return acc;
-      }, {});
-
-      const categoryMap = { CAFE: 'CAFE', EQUI: 'EQUI', CLEA: 'CLEA' };
-
-      for (const [category, items] of Object.entries(grouped)) {
-        const mappedCategory = categoryMap[category];
-        if (!mappedCategory) continue;
-
-        // eslint-disable-next-line no-await-in-loop
-        await updateChecklistItem({
-          category: mappedCategory,
-          submittedBy: employeeId,
-          dateUpdated: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }),
-          branchCode: store.branchCode,
-          checklistItems: items.map((item) => ({
-            checklistItemId: item.id,
-            checklistDone: item.completed ? 'YES' : 'NO'
-          }))
-        });
-      }
-
-      Alert.alert('Success', 'Checklist submitted successfully.');
-      await refreshChecklist();
-    } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error('Checklist submit error:', error);
-      Alert.alert('Error', 'Failed to submit checklist. Please try again.');
-    } finally {
-      setIsChecklistSubmitting(false);
-    }
+  const handleChecklistCategoryPress = (categoryCode) => {
+    setSelectedChecklistCategory(categoryCode);
+    setIsChecklistDetailsOpen(true);
   };
 
   const confirmAction = (title, message) =>
@@ -355,9 +314,15 @@ const EmployeeActionPage = ({ navigation }) => {
       <View style={styles.breakdownGrid}>
         {rows.map((item, index) => (
           <View key={`${item.type}-${index}`} style={styles.breakdownCard}>
-            <Text style={styles.breakdownAmount}>₱{Number(item.amount || 0).toFixed(2)}</Text>
-            <Text style={styles.breakdownType}>{item.type}</Text>
-            <Text style={styles.breakdownTransactions}>{item.transactions || 0} Transactions</Text>
+            <Text style={styles.breakdownAmount} numberOfLines={1}>
+              ₱{Number(item.amount || 0).toFixed(2)}
+            </Text>
+            <Text style={styles.breakdownType} numberOfLines={1}>
+              {item.type}
+            </Text>
+            <Text style={styles.breakdownTransactions} numberOfLines={1}>
+              {item.transactions || 0} Transactions
+            </Text>
           </View>
         ))}
       </View>
@@ -406,7 +371,7 @@ const EmployeeActionPage = ({ navigation }) => {
             {isStoreLoading ? (
               <ActivityIndicator color="#f59e0b" />
             ) : (
-              <>
+              <ScrollView style={styles.sectionScroll} contentContainerStyle={styles.storeManagementContent}>
                 <View style={styles.storeRow}>
                   <Text style={styles.storeBranch} numberOfLines={1}>Branch: {storeInfo.branchName}</Text>
                 </View>
@@ -428,20 +393,22 @@ const EmployeeActionPage = ({ navigation }) => {
                   </View>
                 </View>
 
-                <TouchableOpacity
-                  style={[styles.primaryBtn, isStoreActionLoading && styles.disabledBtn]}
-                  disabled={isStoreActionLoading}
-                  onPress={handleStoreToggle}
-                >
-                  <Text style={styles.primaryBtnText}>
-                    {isStoreActionLoading
-                      ? 'Processing...'
-                      : storeInfo.status === 'CLOSED'
-                      ? 'Open Store'
-                      : 'Close Store'}
-                  </Text>
-                </TouchableOpacity>
-              </>
+                {!(storeInfo.closingTime && storeInfo.closedBy) ? (
+                  <TouchableOpacity
+                    style={[styles.primaryBtn, isStoreActionLoading && styles.disabledBtn]}
+                    disabled={isStoreActionLoading}
+                    onPress={handleStoreToggle}
+                  >
+                    <Text style={styles.primaryBtnText}>
+                      {isStoreActionLoading
+                        ? 'Processing...'
+                        : storeInfo.status === 'CLOSED'
+                        ? 'Open Store'
+                        : 'Close Store'}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
+              </ScrollView>
             )}
           </View>
 
@@ -451,27 +418,30 @@ const EmployeeActionPage = ({ navigation }) => {
               <ActivityIndicator color="#f59e0b" />
             ) : (
               <>
-                <Text style={styles.infoText}>{completedCount} of {checklistItems.length} completed</Text>
-                <ScrollView style={styles.sectionScroll}>
-                  {(checklistItems || []).map((item) => (
-                    <View key={item.id} style={styles.checkRow}>
-                      <Switch
-                        value={item.completed}
-                        onValueChange={() => handleChecklistToggle(item.id)}
-                        trackColor={{ false: '#d1d5db', true: '#f59e0b' }}
-                        thumbColor="#fff"
-                      />
-                      <Text style={[styles.checkLabel, item.completed && styles.checkDone]}>{item.label}</Text>
-                    </View>
+                <ScrollView style={styles.sectionScroll} contentContainerStyle={styles.checklistGridWrap}>
+                  {(checklistCategories || []).map((item, index) => (
+                    <TouchableOpacity
+                      key={`${item.checklistitemCategory}-${index}`}
+                      style={styles.checklistCategoryBtn}
+                      activeOpacity={0.8}
+                      onPress={() => handleChecklistCategoryPress(item.checklistitemCategory)}
+                    >
+                      <View style={styles.checklistCategoryTopRow}>
+                        <Text style={styles.checklistCategoryTitle} numberOfLines={2}>
+                          {item.checklistitemDescription || item.checklistitemCategory || 'Checklist'}
+                        </Text>
+                        <Text style={styles.checklistCategoryChevron}>›</Text>
+                      </View>
+                      <View style={styles.checklistCategoryBottomRow}>
+                        <Text style={styles.checklistCategoryMeta}>
+                          {Number(item.itemsDone || 0)} / {Number(item.totalItems || 0)}
+                        </Text>
+                        <Text style={styles.checklistTapHint}>Tap to open</Text>
+                      </View>
+                    </TouchableOpacity>
                   ))}
+                  {!checklistCategories.length ? <Text style={styles.emptyText}>No checklist categories</Text> : null}
                 </ScrollView>
-                <TouchableOpacity
-                  style={[styles.primaryBtn, isChecklistSubmitting && styles.disabledBtn]}
-                  onPress={handleCompleteAll}
-                  disabled={isChecklistSubmitting}
-                >
-                  <Text style={styles.primaryBtnText}>{isChecklistSubmitting ? 'Submitting...' : 'Complete All'}</Text>
-                </TouchableOpacity>
               </>
             )}
           </View>
@@ -584,6 +554,12 @@ const EmployeeActionPage = ({ navigation }) => {
           </View>
         </View>
       </View>
+
+      <DisplayCheckListDetailsModal
+        isOpen={isChecklistDetailsOpen}
+        onClose={() => setIsChecklistDetailsOpen(false)}
+        checklistitemCategory={selectedChecklistCategory}
+      />
     </SafeAreaView>
   );
 };
@@ -645,7 +621,7 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2
   },
-  actionButtonText: { color: '#fff', fontWeight: '700' },
+  actionButtonText: { color: '#fff', fontWeight: '700', fontSize: RF(13) },
   logoutButton: {
     backgroundColor: '#111111',
     borderRadius: 12,
@@ -696,9 +672,12 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0
   },
+  storeManagementContent: {
+    paddingBottom: 8
+  },
   cardHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   storeHeaderActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  cardTitle: { fontSize: 16, fontWeight: '800', color: '#111111', marginBottom: 8 },
+  cardTitle: { fontSize: RF(16), fontWeight: '800', color: '#111111', marginBottom: 8 },
   refreshBtn: {
     minWidth: 34,
     minHeight: 30,
@@ -714,14 +693,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e78f00'
   },
-  refreshIconText: { color: '#fff', fontWeight: '900', fontSize: 16, lineHeight: 18 },
+  refreshIconText: { color: '#fff', fontWeight: '900', fontSize: RF(16), lineHeight: RF(18) },
   refreshTextHighlight: { color: '#ffffff' },
   storeRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
   storeBranch: { color: '#111111', fontWeight: '800', flex: 1, paddingRight: 8 },
-  storeStatus: { fontWeight: '800', fontSize: 12, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999 },
+  storeStatus: { fontWeight: '800', fontSize: RF(12), paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999 },
   statusOpen: { color: '#166534', backgroundColor: '#dcfce7' },
   statusClosed: { color: '#991b1b', backgroundColor: '#fee2e2' },
-  operatingHoursText: { color: '#374151', marginTop: 2, marginBottom: 8, fontWeight: '600' },
+  operatingHoursText: { color: '#374151', marginTop: 2, marginBottom: 8, fontWeight: '600', fontSize: RF(13) },
   storeInfoGrid: { flexDirection: 'row', gap: 8, marginBottom: 4 },
   storeInfoGroup: {
     flex: 1,
@@ -732,9 +711,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 7
   },
-  storeInfoGroupTitle: { color: '#111111', fontWeight: '800', marginBottom: 3, fontSize: 12 },
-  storeInfoGroupLine: { color: '#374151', fontWeight: '600', fontSize: 12, marginTop: 1 },
-  infoText: { color: '#374151', marginTop: 3 },
+  storeInfoGroupTitle: { color: '#111111', fontWeight: '800', marginBottom: 3, fontSize: RF(12) },
+  storeInfoGroupLine: { color: '#374151', fontWeight: '600', fontSize: RF(12), marginTop: 1 },
+  infoText: { color: '#374151', marginTop: 3, fontSize: RF(12) },
   primaryBtn: {
     marginTop: 12,
     borderRadius: 11,
@@ -745,10 +724,63 @@ const styles = StyleSheet.create({
     borderColor: '#e78f00'
   },
   disabledBtn: { opacity: 0.6 },
-  primaryBtnText: { color: '#ffffff', fontWeight: '700' },
-  checkRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
-  checkLabel: { marginLeft: 10, color: '#111111', flex: 1, fontWeight: '600' },
-  checkDone: { textDecorationLine: 'line-through', color: '#6b7280' },
+  primaryBtnText: { color: '#ffffff', fontWeight: '700', fontSize: RF(13) },
+  checklistGridWrap: {
+    flexDirection: 'column',
+    gap: 8,
+    paddingBottom: 8
+  },
+  checklistCategoryBtn: {
+    width: '100%',
+    minHeight: 82,
+    borderWidth: 1,
+    borderColor: '#f59e0b88',
+    borderRadius: 10,
+    backgroundColor: '#fff7e8',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    justifyContent: 'space-between',
+    shadowColor: '#111111',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.12,
+    shadowRadius: 3,
+    elevation: 2
+  },
+  checklistCategoryTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 8
+  },
+  checklistCategoryChevron: {
+    color: '#b45309',
+    fontWeight: '900',
+    fontSize: RF(18),
+    lineHeight: RF(18)
+  },
+  checklistCategoryBottomRow: {
+    marginTop: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 6
+  },
+  checklistCategoryTitle: {
+    color: '#111111',
+    fontWeight: '800',
+    fontSize: RF(12),
+    flex: 1
+  },
+  checklistCategoryMeta: {
+    color: '#374151',
+    fontWeight: '800',
+    fontSize: RF(12)
+  },
+  checklistTapHint: {
+    color: '#92400e',
+    fontWeight: '700',
+    fontSize: RF(10)
+  },
   dailySalesWrap: { gap: 8, paddingBottom: 8 },
   totalSaleCard: {
     borderWidth: 1,
@@ -757,8 +789,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#fffbf3',
     padding: 10
   },
-  totalSaleLabel: { color: '#6b7280', fontWeight: '700', marginBottom: 4 },
-  bigValue: { fontSize: 22, fontWeight: '900', color: '#111111' },
+  totalSaleLabel: { color: '#6b7280', fontWeight: '700', marginBottom: 4, fontSize: RF(12) },
+  bigValue: { fontSize: RF(22), fontWeight: '900', color: '#111111' },
   salesGroupCard: {
     borderWidth: 1,
     borderColor: '#1111111f',
@@ -770,12 +802,12 @@ const styles = StyleSheet.create({
     color: '#111111',
     fontWeight: '800',
     marginBottom: 4,
-    fontSize: 12
+    fontSize: RF(12)
   },
   salesGroupValue: {
     color: '#374151',
     fontWeight: '600',
-    fontSize: 12,
+    fontSize: RF(12),
     marginTop: 1
   },
   cupSizeRow: {
@@ -788,7 +820,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
     color: '#111111',
     fontWeight: '700',
-    fontSize: 11,
+    fontSize: RF(11),
     textAlign: 'center',
     borderWidth: 1,
     borderColor: '#11111126',
@@ -797,19 +829,18 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     backgroundColor: '#ffffff'
   },
-  breakdownGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  breakdownGrid: { flexDirection: 'column', gap: 8, width: '100%' },
   breakdownCard: {
-    flexBasis: '48%',
-    flexGrow: 1,
+    width: '100%',
     borderWidth: 1,
     borderColor: '#11111122',
     borderRadius: 12,
     backgroundColor: '#fffdf9',
     padding: 10
   },
-  breakdownAmount: { color: '#111111', fontSize: 16, fontWeight: '800' },
-  breakdownType: { marginTop: 4, color: '#374151', fontWeight: '700' },
-  breakdownTransactions: { marginTop: 2, color: '#6b7280', fontSize: 12 },
+  breakdownAmount: { color: '#111111', fontSize: RF(16), fontWeight: '800' },
+  breakdownType: { marginTop: 4, color: '#374151', fontWeight: '700', fontSize: RF(12) },
+  breakdownTransactions: { marginTop: 2, color: '#6b7280', fontSize: RF(12) },
   itemRow: {
     borderWidth: 1,
     borderColor: '#1111111f',
@@ -818,8 +849,8 @@ const styles = StyleSheet.create({
     padding: 10,
     marginBottom: 8
   },
-  itemTitle: { color: '#111111', fontWeight: '800' },
-  emptyText: { color: '#6b7280' }
+  itemTitle: { color: '#111111', fontWeight: '800', fontSize: RF(13) },
+  emptyText: { color: '#6b7280', fontSize: RF(12) }
 });
 
 export default EmployeeActionPage;

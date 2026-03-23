@@ -25,7 +25,11 @@ export const fetchDailySales = async (branchCode, orderDate = getCurrentPhilippi
       where('orderDate', '==', orderDate)
     );
 
-    const querySnapshot = await getDocs(salesQuery);
+    const [querySnapshot, paymentMethodSnapshot, orderModeSnapshot] = await Promise.all([
+      getDocs(salesQuery),
+      getDocs(collection(firestore, 'CYNQ_POS_PAYMENT_METHODS')),
+      getDocs(collection(firestore, 'CYNQ_POS_ORDER_MODES'))
+    ]);
 
     let totalSale = 0;
     let transactionCount = 0;
@@ -37,36 +41,102 @@ export const fetchDailySales = async (branchCode, orderDate = getCurrentPhilippi
     let pastriesSold = 0;
 
     const paymentSummary = {};
+    const paymentMethodReference = {};
+    const paymentBreakdownMap = {};
+    const orderModeReference = {};
+    const orderModeBreakdownMap = {};
+
+    paymentMethodSnapshot.forEach((methodDoc) => {
+      const method = methodDoc.data() || {};
+      const code = String(method.paymentMethodCode || '').trim().toUpperCase();
+      const description = String(method.paymentMethodDesc || '').trim();
+
+      if (!code || code === 'BILL' || code === 'NEGA') return;
+
+      paymentMethodReference[code] = description || code;
+      paymentBreakdownMap[code] = {
+        paymentMethodCode: code,
+        paymentMethodDesc: description || code,
+        amount: 0,
+        transactions: 0
+      };
+    });
+
+    const allowedOnlineModes = new Set(['FP', 'GB', 'FB', 'KI']);
+
+    orderModeSnapshot.forEach((modeDoc) => {
+      const mode = modeDoc.data() || {};
+      const code = String(mode.orderModeCode || '').trim().toUpperCase();
+      const description = String(mode.orderModeDesc || '').trim();
+
+      if (!code || !allowedOnlineModes.has(code)) return;
+
+      orderModeReference[code] = description || code;
+      orderModeBreakdownMap[code] = {
+        orderModeCode: code,
+        orderModeDesc: description || code,
+        amount: 0,
+        transactions: 0
+      };
+    });
 
     querySnapshot.forEach((doc) => {
       const data = doc.data();
       const status = data.queueDetails?.orderStatus;
+      const orderChange = Number(data.orderDetails?.orderChange ?? data.mainDetails?.orderChange ?? 0);
 
       if (status === 'VOID') return;
 
       transactionCount += 1;
-      totalSale += Number(data.mainDetails?.totalAmount || 0);
+      const totalAmount = Number(data.mainDetails?.totalAmount || 0);
+      totalSale += totalAmount;
+
+      const orderModeCode = String(data.orderMode ?? data.orderDetails?.orderMode ?? '').trim().toUpperCase();
+      if (orderModeCode && orderModeBreakdownMap[orderModeCode]) {
+        orderModeBreakdownMap[orderModeCode].transactions += 1;
+        orderModeBreakdownMap[orderModeCode].amount += totalAmount;
+      }
 
       (data.orderItems || []).forEach((item) => {
         const qty = Number(item.itemQuantity || 0);
-        totalCupsSold += qty;
+        const category = String(item.itemCategory || '').toUpperCase();
+        const isFoodOrPastry = category === 'FOD' || category === 'PST';
+
+        if (!isFoodOrPastry) {
+          totalCupsSold += qty;
+        }
 
         const size = String(item.itemSize || '').trim().toUpperCase();
         if (size === 'S') small += qty;
         if (size === 'M') medium += qty;
         if (size === 'L') large += qty;
 
-        const category = String(item.itemCategory || '').toUpperCase();
         if (category === 'FOD' || category.includes('FOOD')) foodSold += qty;
         if (category === 'PST' || category.includes('PASTRY')) pastriesSold += qty;
       });
 
       (data.paymentMethods || []).forEach((pay) => {
+        const paymentCode = String(pay.modeOfPayment || '').trim().toUpperCase();
+        const rawAmount = Number(pay.paymentAmount || 0);
+        const amount = paymentCode === 'CASH' ? Math.max(0, rawAmount - orderChange) : rawAmount;
         const key = pay.modeOfPayment || 'OTHERS';
-        const amount = Number(pay.paymentAmount || 0);
+
         paymentSummary[key] = (paymentSummary[key] || 0) + amount;
+
+        if (!paymentCode || !paymentMethodReference[paymentCode]) return;
+
+        paymentBreakdownMap[paymentCode].amount += amount;
+        paymentBreakdownMap[paymentCode].transactions += 1;
       });
     });
+
+    const paymentBreakdown = Object.values(paymentBreakdownMap)
+      .filter((row) => row.amount > 0 || row.transactions > 0)
+      .sort((left, right) => right.amount - left.amount);
+
+    const orderModeBreakdown = Object.values(orderModeBreakdownMap)
+      .filter((row) => row.amount > 0 || row.transactions > 0)
+      .sort((left, right) => right.amount - left.amount);
 
     return {
       success: true,
@@ -79,7 +149,9 @@ export const fetchDailySales = async (branchCode, orderDate = getCurrentPhilippi
         large,
         foodSold,
         pastriesSold,
-        paymentSummary
+        paymentSummary,
+        paymentBreakdown,
+        orderModeBreakdown
       },
       message: 'Daily sales fetched successfully'
     };

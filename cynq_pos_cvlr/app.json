@@ -31,6 +31,9 @@
         "projectId": "c14af685-3ff5-4639-a7ca-823bf4a333a1"
       }
     },
-    "owner": "cafevanleroe-prod"
+    "owner": "cafevanleroe-prod",
+    "plugins": [
+      "expo-router"
+    ]
   }
 }
