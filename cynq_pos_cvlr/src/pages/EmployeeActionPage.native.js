@@ -329,6 +329,35 @@ const EmployeeActionPage = ({ navigation }) => {
     );
   };
 
+  const formatCreatedAt = (value) => {
+    if (!value) return 'N/A';
+
+    const sourceDate = typeof value?.toDate === 'function' ? value.toDate() : new Date(value);
+    if (!(sourceDate instanceof Date) || Number.isNaN(sourceDate.getTime())) {
+      return String(value);
+    }
+
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Manila',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    }).formatToParts(sourceDate);
+
+    const year = parts.find((part) => part.type === 'year')?.value || '0000';
+    const month = parts.find((part) => part.type === 'month')?.value || '00';
+    const day = parts.find((part) => part.type === 'day')?.value || '00';
+    const hour = parts.find((part) => part.type === 'hour')?.value || '00';
+    const minute = parts.find((part) => part.type === 'minute')?.value || '00';
+    const second = parts.find((part) => part.type === 'second')?.value || '00';
+
+    return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.headerRow}>
@@ -532,10 +561,24 @@ const EmployeeActionPage = ({ navigation }) => {
                 ) : expenses.length ? (
                   expenses.map((expense, index) => (
                     <View key={expense.id || index} style={styles.itemRow}>
-                      <Text style={styles.itemTitle}>{expense.itemName || 'N/A'}</Text>
-                      <Text style={styles.infoText}>Receipt: {expense.receiptNumber || 'N/A'}</Text>
-                      <Text style={styles.infoText}>Qty: {expense.quantity || 0} • Price: ₱{Number(expense.price || 0).toFixed(2)}</Text>
-                      <Text style={styles.infoText}>Total: ₱{Number(expense.totalAmount || 0).toFixed(2)}</Text>
+                      <Text style={styles.itemTitle}>Receipt No: {expense.receiptNumber || 'N/A'}</Text>
+                      <Text style={styles.infoText}>Created At: {formatCreatedAt(expense.createdAt)}</Text>
+                      <Text style={styles.infoText}>Payment Method: {expense.paymentMethod || 'N/A'}</Text>
+                      <Text style={styles.infoText}>Receipt Total: ₱{Number(expense.receiptTotalAmount || 0).toFixed(2)}</Text>
+                      <Text style={styles.infoText}>No Receipt Reason: {expense.noReceiptReason || 'N/A'}</Text>
+
+                      {Array.isArray(expense.items) && expense.items.length ? (
+                        <View style={styles.expenseItemsWrap}>
+                          {expense.items.map((item, itemIndex) => (
+                            <View key={`${item.itemName || 'item'}-${itemIndex}`} style={styles.expenseItemCard}>
+                              <Text style={styles.expenseItemName}>{item.itemName || 'N/A'}</Text>
+                              <Text style={styles.expenseItemMeta}>
+                                Qty: {Number(item.itemQTY || 0)} • Price: ₱{Number(item.itemPrice || 0).toFixed(2)}
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
+                      ) : null}
                     </View>
                   ))
                 ) : (
@@ -885,6 +928,29 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: RF(11),
     marginTop: 1
+  },
+  expenseItemsWrap: {
+    marginTop: 8,
+    gap: 6
+  },
+  expenseItemCard: {
+    borderWidth: 1,
+    borderColor: '#1111111a',
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 8,
+    paddingVertical: 6
+  },
+  expenseItemName: {
+    color: '#111111',
+    fontWeight: '700',
+    fontSize: RF(12)
+  },
+  expenseItemMeta: {
+    color: '#4b5563',
+    fontWeight: '600',
+    fontSize: RF(11),
+    marginTop: 2
   },
   itemTitle: { color: '#111111', fontWeight: '800', fontSize: RF(13) },
   emptyText: { color: '#6b7280', fontSize: RF(12) }

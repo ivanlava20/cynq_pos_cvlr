@@ -99,8 +99,8 @@ export const fetchEmployeeStaffing = async (branchCode, dateToday = getCurrentPh
     const staffingQuery = query(
       collection(firestore, collectionList.employeeStaffing),
       where('branchCode', '==', branchCode),
-      where('timeEntryDate', '==', '2026-03-24')
-      //where('timeEntryDate', '==', dateToday)
+      //where('timeEntryDate', '==', '2026-03-24')
+      where('timeEntryDate', '==', dateToday)
     );
 
     const snapshot = await getDocs(staffingQuery);

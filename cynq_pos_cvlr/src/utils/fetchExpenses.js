@@ -1,5 +1,6 @@
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { firestore } from '../../firebase.js';
+import { collectionList } from '../config/env';
 
 const getCurrentPhilippineDate = () => {
   const philippineDate = new Date().toLocaleString('en-US', {
@@ -20,25 +21,17 @@ export const fetchExpenses = async (branchCode, expenseDate = getCurrentPhilippi
     }
 
     const expensesQuery = query(
-      collection(firestore, 'EXPENSES'),
+      collection(firestore, collectionList.expenseItems),
       where('branchCode', '==', branchCode),
-      where('expenseDate', '==', expenseDate)
+      //where('dateChecked', '==', '2026-03-24')
+      where('dateChecked', '==', expenseDate)
     );
 
     const snapshot = await getDocs(expensesQuery);
-    const expenses = [];
-
-    snapshot.forEach((doc) => {
-      const data = doc.data();
-      expenses.push({
-        id: doc.id,
-        receiptNumber: data.receiptNumber || '',
-        itemName: data.itemName || '',
-        quantity: Number(data.quantity || 0),
-        price: Number(data.price || 0),
-        totalAmount: Number(data.totalAmount || 0)
-      });
-    });
+    const expenses = snapshot.docs.map((docSnap) => ({
+      id: docSnap.id,
+      ...(docSnap.data() || {})
+    }));
 
     const totalExpenses = expenses.reduce((sum, item) => sum + Number(item.totalAmount || 0), 0);
 
