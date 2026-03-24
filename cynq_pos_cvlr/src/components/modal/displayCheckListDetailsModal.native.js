@@ -15,11 +15,13 @@ const resolveChecklistTypeFromCategory = (checklistitemCategory) => {
   return 'checkBox';
 };
 
-const DisplayCheckListDetailsModal = ({ isOpen, onClose, checklistitemCategory }) => {
+const DisplayCheckListDetailsModal = ({ isOpen, onClose, checklistitemCategory, onUpdated }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [checklistType, setChecklistType] = useState('checkBox');
   const [checklistItems, setChecklistItems] = useState([]);
+  const [employeeDetails, setEmployeeDetails] = useState([]);
+  const [selectedEvaluatedEmployeeId, setSelectedEvaluatedEmployeeId] = useState('');
   const [activeEmployeeId, setActiveEmployeeId] = useState('');
 
   const getCurrentPhilippineDate = () => {
@@ -41,6 +43,8 @@ const DisplayCheckListDetailsModal = ({ isOpen, onClose, checklistitemCategory }
     if (!isOpen || !checklistitemCategory) {
       if (!isOpen) {
         setChecklistItems([]);
+        setEmployeeDetails([]);
+        setSelectedEvaluatedEmployeeId('');
         setChecklistType('checkBox');
         setErrorMessage('');
       }
@@ -71,9 +75,21 @@ const DisplayCheckListDetailsModal = ({ isOpen, onClose, checklistitemCategory }
 
         setChecklistType(resolveChecklistTypeFromCategory(checklistitemCategory));
         setChecklistItems(Array.isArray(result?.checklistItems) ? result.checklistItems : []);
+
+        const loadedEmployeeDetails = Array.isArray(result?.employeeDetails) ? result.employeeDetails : [];
+        setEmployeeDetails(loadedEmployeeDetails);
+
+        if (resolveChecklistTypeFromCategory(checklistitemCategory) === 'special') {
+          const firstEmployeeId = String(loadedEmployeeDetails[0]?.employeeId || '').trim();
+          setSelectedEvaluatedEmployeeId(firstEmployeeId);
+        } else {
+          setSelectedEvaluatedEmployeeId('');
+        }
       } catch (error) {
         if (cancelled) return;
         setChecklistItems([]);
+        setEmployeeDetails([]);
+        setSelectedEvaluatedEmployeeId('');
         setErrorMessage(error?.message || 'Failed to load checklist items');
       } finally {
         if (!cancelled) setIsLoading(false);
@@ -126,6 +142,68 @@ const DisplayCheckListDetailsModal = ({ isOpen, onClose, checklistitemCategory }
           : item
       )));
       return;
+    }
+
+    if (typeof onUpdated === 'function') {
+      onUpdated();
+    }
+
+    if (errorMessage) setErrorMessage('');
+  };
+
+  const updateSpecialChecklistDone = async (item, value) => {
+    const nextChecklistDone = value ? 'YES' : 'NO';
+    const selectedChecklistItemId = String(item?.checklistItemId || '').trim();
+    const selectedCategory = String(checklistitemCategory || '').trim().toUpperCase();
+    const selectedEmployeeId = String(selectedEvaluatedEmployeeId || '').trim();
+    const previousChecklistDone = String(item?.checklistDone || '').trim().toUpperCase();
+
+    if (!selectedChecklistItemId || !selectedEmployeeId) return;
+
+    setChecklistItems((prev) => prev.map((row) => {
+      const sameItem = String(row.checklistItemId || '').trim() === selectedChecklistItemId;
+      const sameEmployee = String(row.employeeEvaluated || '').trim() === selectedEmployeeId;
+
+      if (sameItem && sameEmployee) {
+        return { ...row, checklistDone: nextChecklistDone };
+      }
+
+      return row;
+    }));
+
+    const submittedBy = String(activeEmployeeId || '').trim();
+    if (!submittedBy) {
+      setErrorMessage('Unable to save checklist update: employee ID not found.');
+      return;
+    }
+
+    const result = await updateChecklistItem({
+      branchCode: String(store.branchCode || '').trim(),
+      checklistDone: nextChecklistDone,
+      checklistItemId: selectedChecklistItemId,
+      checklistitemCategory: selectedCategory,
+      dateUpdated: getCurrentPhilippineDate(),
+      employeeAdded: submittedBy,
+      employeeEvaluated: selectedEmployeeId
+    });
+
+    if (!result?.success) {
+      setErrorMessage(result?.description || 'Failed to save checklist update.');
+      setChecklistItems((prev) => prev.map((row) => {
+        const sameItem = String(row.checklistItemId || '').trim() === selectedChecklistItemId;
+        const sameEmployee = String(row.employeeEvaluated || '').trim() === selectedEmployeeId;
+
+        if (sameItem && sameEmployee) {
+          return { ...row, checklistDone: previousChecklistDone };
+        }
+
+        return row;
+      }));
+      return;
+    }
+
+    if (typeof onUpdated === 'function') {
+      onUpdated();
     }
 
     if (errorMessage) setErrorMessage('');
@@ -202,6 +280,71 @@ const DisplayCheckListDetailsModal = ({ isOpen, onClose, checklistitemCategory }
             <Text style={[styles.tableHeaderCell, styles.statusCol]}>Checked</Text>
           </View>
           {renderCheckBoxRows()}
+        </>
+      );
+    }
+
+    if (checklistType === 'special') {
+      const filteredItems = checklistItems.filter(
+        (item) => String(item.employeeEvaluated || '').trim() === String(selectedEvaluatedEmployeeId || '').trim()
+      );
+
+      return (
+        <>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.employeeSelectorRow}
+          >
+            {employeeDetails.map((employee, index) => {
+              const employeeId = String(employee.employeeId || '').trim();
+              const isSelected = employeeId && employeeId === selectedEvaluatedEmployeeId;
+
+              return (
+                <TouchableOpacity
+                  key={`${employeeId}-${index}`}
+                  style={[styles.employeeChip, isSelected && styles.employeeChipSelected]}
+                  onPress={() => setSelectedEvaluatedEmployeeId(employeeId)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.employeeChipText, isSelected && styles.employeeChipTextSelected]}>
+                    {employee.employee || employeeId || 'Employee'}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+
+          {!selectedEvaluatedEmployeeId ? (
+            <Text style={styles.infoText}>No employee available for evaluation.</Text>
+          ) : (
+            <>
+              <View style={styles.tableHeaderRow}>
+                <Text style={[styles.tableHeaderCell, styles.itemCol]}>Checklist Item</Text>
+                <Text style={[styles.tableHeaderCell, styles.statusCol]}>Checked</Text>
+              </View>
+
+              {filteredItems.map((item, index) => {
+                const isChecked = String(item.checklistDone || '').trim().toUpperCase() === 'YES';
+                const itemName = item.checklistItemDescription || item.checklistItem || item.checklistItemId || '-';
+
+                return (
+                  <View key={`${item.checklistItemId || itemName}-${index}`} style={styles.tableRow}>
+                    <Text style={[styles.tableCell, styles.itemCol]} numberOfLines={2}>{itemName}</Text>
+                    <TouchableOpacity
+                      style={[styles.statusInputButton, styles.statusCol]}
+                      onPress={() => updateSpecialChecklistDone(item, !isChecked)}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={styles.statusInputText}>{isChecked ? '☑' : '☐'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+
+              {!filteredItems.length ? <Text style={styles.infoText}>No checklist items found for this employee.</Text> : null}
+            </>
+          )}
         </>
       );
     }
@@ -309,6 +452,30 @@ const styles = StyleSheet.create({
   },
   tableContent: {
     paddingBottom: 4
+  },
+  employeeSelectorRow: {
+    paddingBottom: 8,
+    gap: 8
+  },
+  employeeChip: {
+    borderWidth: 1,
+    borderColor: '#11111133',
+    borderRadius: 999,
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 10,
+    paddingVertical: 6
+  },
+  employeeChipSelected: {
+    borderColor: '#e78f00',
+    backgroundColor: '#fff3d6'
+  },
+  employeeChipText: {
+    color: '#111111',
+    fontWeight: '700',
+    fontSize: 12
+  },
+  employeeChipTextSelected: {
+    color: '#92400e'
   },
   tableHeaderRow: {
     flexDirection: 'row',

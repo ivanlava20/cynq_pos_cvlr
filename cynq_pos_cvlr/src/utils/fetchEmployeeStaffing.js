@@ -1,5 +1,6 @@
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { firestore } from '../../firebase.js';
+import { collectionList } from '../config/env';
 
 const getCurrentPhilippineDate = () => {
   const philippineDate = new Date().toLocaleString('en-US', {
@@ -13,6 +14,82 @@ const getCurrentPhilippineDate = () => {
   return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
 };
 
+const to12HourTime = (value) => {
+  if (!value) return null;
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+
+    const twelveHourPattern = /^(0?[1-9]|1[0-2]):[0-5]\d\s?(AM|PM)$/i;
+    if (twelveHourPattern.test(trimmed)) {
+      return trimmed.toUpperCase().replace(/\s+/, ' ');
+    }
+
+    const twentyFourHourMatch = trimmed.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+    if (twentyFourHourMatch) {
+      const hour = Math.min(23, Math.max(0, Number(twentyFourHourMatch[1])));
+      const minute = Math.min(59, Math.max(0, Number(twentyFourHourMatch[2])));
+      const baseDate = new Date(Date.UTC(1970, 0, 1, hour, minute));
+
+      return new Intl.DateTimeFormat('en-US', {
+        timeZone: 'UTC',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+      }).format(baseDate);
+    }
+
+    return trimmed;
+  }
+
+  if (typeof value?.toDate === 'function') {
+    const converted = value.toDate();
+    if (converted instanceof Date && !Number.isNaN(converted.getTime())) {
+      return new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Manila',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+      }).format(converted);
+    }
+  }
+
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Manila',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    }).format(value);
+  }
+
+  return String(value);
+};
+
+const loadEmployeeNameMap = async (employeeIds = []) => {
+  const ids = Array.from(new Set(employeeIds.filter(Boolean)));
+  if (!ids.length) return {};
+
+  const nameMap = {};
+
+  await Promise.all(
+    ids.map(async (employeeId) => {
+      const employeeQuery = query(
+        collection(firestore, collectionList.employeeInformation),
+        where('employeeId', '==', employeeId)
+      );
+
+      const employeeSnapshot = await getDocs(employeeQuery);
+      if (employeeSnapshot.empty) return;
+
+      const employeeData = employeeSnapshot.docs[0]?.data() || {};
+      nameMap[employeeId] = String(employeeData.name || '').trim();
+    })
+  );
+
+  return nameMap;
+};
+
 export const fetchEmployeeStaffing = async (branchCode, dateToday = getCurrentPhilippineDate()) => {
   try {
     if (!branchCode) {
@@ -20,24 +97,32 @@ export const fetchEmployeeStaffing = async (branchCode, dateToday = getCurrentPh
     }
 
     const staffingQuery = query(
-      collection(firestore, 'TIME_ENTRY'),
+      collection(firestore, collectionList.employeeStaffing),
       where('branchCode', '==', branchCode),
-      where('dateToday', '==', dateToday)
+      where('timeEntryDate', '==', '2026-03-24')
+      //where('timeEntryDate', '==', dateToday)
     );
 
     const snapshot = await getDocs(staffingQuery);
     const staffing = [];
+    const rawRows = [];
 
     snapshot.forEach((doc) => {
-      const data = doc.data();
+      rawRows.push({ id: doc.id, ...(doc.data() || {}) });
+    });
+
+    const employeeNameMap = await loadEmployeeNameMap(rawRows.map((row) => String(row.employeeId || '').trim()));
+
+    rawRows.forEach((data) => {
+      const employeeId = String(data.employeeId || '').trim();
       staffing.push({
-        id: doc.id,
-        employee: data.employeeName || data.employee || '',
-        employeeId: data.employeeId || '',
-        timeIn: data.timeIn || null,
-        breakIn: data.breakIn || null,
-        breakOut: data.breakOut || null,
-        timeOut: data.timeOut || null
+        id: data.id,
+        employee: employeeNameMap[employeeId] || data.employeeName || data.employee || '',
+        employeeId,
+        timeIn: to12HourTime(data.timeIn),
+        breakIn: to12HourTime(data.breakIn),
+        breakOut: to12HourTime(data.breakOut),
+        timeOut: to12HourTime(data.timeOut)
       });
     });
 

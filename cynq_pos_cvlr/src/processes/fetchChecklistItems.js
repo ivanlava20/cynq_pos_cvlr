@@ -1,6 +1,7 @@
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { firestore } from '../../firebase.js';
 import { collectionList, store } from '../config/env';
+import { fetchEmployeeStaffing } from '../utils/fetchEmployeeStaffing';
 
 const getCurrentPhilippineDate = () => {
 	const parts = new Intl.DateTimeFormat('en-US', {
@@ -48,6 +49,7 @@ const normalizeChecklistItems = (rows = []) => {
 
 export const fetchChecklistItems = async (checklistCategory, branchCode = store.branchCode) => {
 	const normalizedCategory = String(checklistCategory || '').trim().toUpperCase();
+	const normalizedBranchCode = String(branchCode || store.branchCode || '').trim();
 
 	if (!normalizedCategory) {
 		return {
@@ -59,11 +61,118 @@ export const fetchChecklistItems = async (checklistCategory, branchCode = store.
 	const checklistType = resolveChecklistType(normalizedCategory);
 	const todayPhDate = getCurrentPhilippineDate();
 
+	if (normalizedCategory === 'EMPL') {
+		const masterItemsQuery = query(
+			collection(firestore, collectionList.checklistItems),
+			where('checklistitemCategory', '==', normalizedCategory)
+		);
+
+		const [staffingResult, masterItemsSnapshot] = await Promise.all([
+			fetchEmployeeStaffing(normalizedBranchCode, todayPhDate),
+			getDocs(masterItemsQuery)
+		]);
+
+		const staffingRows = Array.isArray(staffingResult?.data) ? staffingResult.data : [];
+		const employeeDetails = staffingRows
+			.map((row) => ({
+				employeeId: String(row.employeeId || '').trim(),
+				employee: String(row.employee || '').trim()
+			}))
+			.filter((row) => row.employeeId)
+			.filter((row, index, array) => array.findIndex((candidate) => candidate.employeeId === row.employeeId) === index);
+
+		const masterRows = masterItemsSnapshot.docs.map((docSnap) => docSnap.data() || {});
+		const masterByItemId = new Map(
+			masterRows.map((row) => {
+				const checklistItemId = String(row.checklistItemId ?? row.checklistitemId ?? '').trim();
+				const checklistItemDescription = String(
+					row.checklistItem ?? row.checklistitem ?? row.checklistItemDescription ?? row.checklistitemDescription ?? ''
+				).trim();
+
+				return [checklistItemId, { checklistItemId, checklistItemDescription }];
+			})
+		);
+
+		const checklistItemsByEmployee = await Promise.all(
+			employeeDetails.map(async ({ employeeId }) => {
+				const dailyQuery = query(
+					collection(firestore, collectionList.checklistDailyEntry),
+					where('employeeEvaluated', '==', employeeId),
+					where('branchCode', '==', normalizedBranchCode),
+					where('checklistitemCategory', '==', normalizedCategory),
+					where('dateUpdated', '==', todayPhDate)
+				);
+
+				const dailySnapshot = await getDocs(dailyQuery);
+				const dailyRows = normalizeChecklistItems(dailySnapshot.docs.map((docSnap) => docSnap.data() || {}));
+
+				const dailyByItemId = new Map();
+				dailyRows.forEach((row) => {
+					const checklistItemId = String(row.checklistItemId || '').trim();
+					if (!checklistItemId) return;
+					dailyByItemId.set(checklistItemId, row);
+				});
+
+				if (dailyByItemId.size > 0) {
+					const mergedRows = Array.from(masterByItemId.values()).map((masterRow) => {
+						const daily = dailyByItemId.get(masterRow.checklistItemId);
+						return {
+							branchCode: normalizedBranchCode,
+							checklistDone: String(daily?.checklistDone || '').trim().toUpperCase() === 'YES'
+								? 'YES'
+								: String(daily?.checklistDone || '').trim().toUpperCase() === 'NO'
+								? 'NO'
+								: '',
+							checklistItemId: masterRow.checklistItemId,
+							checklistItemDescription: masterRow.checklistItemDescription,
+							checklistitemCategory: normalizedCategory,
+							dateUpdated: todayPhDate,
+							employeeAdded: String(daily?.employeeAdded || '').trim(),
+							employeeEvaluated: employeeId
+						};
+					});
+
+					const extraDailyRows = dailyRows
+						.filter((row) => !masterByItemId.has(String(row.checklistItemId || '').trim()))
+						.map((row) => ({
+							branchCode: normalizedBranchCode,
+							checklistDone: row.checklistDone || '',
+							checklistItemId: String(row.checklistItemId || '').trim(),
+							checklistItemDescription: row.checklistItemDescription || row.checklistItem || String(row.checklistItemId || '').trim(),
+							checklistitemCategory: normalizedCategory,
+							dateUpdated: todayPhDate,
+							employeeAdded: String(row.employeeAdded || '').trim(),
+							employeeEvaluated: employeeId
+						}));
+
+					return [...mergedRows, ...extraDailyRows];
+				}
+
+				return Array.from(masterByItemId.values()).map((masterRow) => ({
+					branchCode: normalizedBranchCode,
+					checklistDone: '',
+					checklistItemId: masterRow.checklistItemId,
+					checklistItemDescription: masterRow.checklistItemDescription,
+					checklistitemCategory: normalizedCategory,
+					dateUpdated: todayPhDate,
+					employeeAdded: '',
+					employeeEvaluated: employeeId
+				}));
+			})
+		);
+
+		return {
+			checklistType,
+			employeeDetails,
+			checklistItems: checklistItemsByEmployee.flat()
+		};
+	}
+
 	const dailyQuery = query(
 		collection(firestore, collectionList.checklistDailyEntry),
 		where('checklistitemCategory', '==', normalizedCategory),
 		where('dateUpdated', '==', todayPhDate),
-		where('branchCode', '==', String(branchCode || '').trim())
+		where('branchCode', '==', normalizedBranchCode)
 	);
 
 	const masterItemsQuery = query(
@@ -101,7 +210,7 @@ export const fetchChecklistItems = async (checklistCategory, branchCode = store.
 			checklistItemDescription,
 			checklistItem: checklistItemDescription,
 			dateUpdated: String(daily?.dateUpdated || todayPhDate).trim(),
-			branchCode: String(daily?.branchCode || branchCode || '').trim()
+			branchCode: String(daily?.branchCode || normalizedBranchCode || '').trim()
 		};
 
 		if (normalizedCategory === 'EQUI' && !hasAnyDailyEntry) {

@@ -504,8 +504,18 @@ const EmployeeActionPage = ({ navigation }) => {
                   staffing.map((staff, index) => (
                     <View key={`${staff.employee}-${index}`} style={styles.itemRow}>
                       <Text style={styles.itemTitle}>{staff.employee || 'N/A'}</Text>
-                      <Text style={styles.infoText}>In: {staff.timeIn || 'N/A'} • Break In: {staff.breakIn || 'N/A'}</Text>
-                      <Text style={styles.infoText}>Break Out: {staff.breakOut || 'N/A'} • Out: {staff.timeOut || 'N/A'}</Text>
+
+                      <View style={styles.staffingGroupRow}>
+                        <View style={styles.staffingGroupCard}>
+                          <Text style={styles.staffingGroupValue}>In: {staff.timeIn || 'N/A'}</Text>
+                          <Text style={styles.staffingGroupValue}>Out: {staff.timeOut || 'N/A'}</Text>
+                        </View>
+
+                        <View style={styles.staffingGroupCard}>
+                          <Text style={styles.staffingGroupValue}>Break In: {staff.breakIn || 'N/A'}</Text>
+                          <Text style={styles.staffingGroupValue}>Break Out: {staff.breakOut || 'N/A'}</Text>
+                        </View>
+                      </View>
                     </View>
                   ))
                 ) : (
@@ -559,6 +569,7 @@ const EmployeeActionPage = ({ navigation }) => {
         isOpen={isChecklistDetailsOpen}
         onClose={() => setIsChecklistDetailsOpen(false)}
         checklistitemCategory={selectedChecklistCategory}
+        onUpdated={refreshChecklist}
       />
     </SafeAreaView>
   );
@@ -848,6 +859,32 @@ const styles = StyleSheet.create({
     backgroundColor: '#fffdf9',
     padding: 10,
     marginBottom: 8
+  },
+  staffingGroupRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8
+  },
+  staffingGroupCard: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#1111111f',
+    borderRadius: 10,
+    backgroundColor: '#fffdf9',
+    paddingHorizontal: 8,
+    paddingVertical: 7
+  },
+  staffingGroupTitle: {
+    color: '#111111',
+    fontWeight: '800',
+    fontSize: RF(11),
+    marginBottom: 4
+  },
+  staffingGroupValue: {
+    color: '#374151',
+    fontWeight: '600',
+    fontSize: RF(11),
+    marginTop: 1
   },
   itemTitle: { color: '#111111', fontWeight: '800', fontSize: RF(13) },
   emptyText: { color: '#6b7280', fontSize: RF(12) }
