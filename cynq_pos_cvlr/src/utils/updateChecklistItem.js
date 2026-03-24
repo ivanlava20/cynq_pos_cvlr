@@ -1,5 +1,6 @@
 import { addDoc, collection, getDocs, query, updateDoc, where } from 'firebase/firestore';
 import { firestore } from '../../firebase.js';
+import { collectionList } from '../config/env';
 
 const CATEGORY_MAP = {
   CAFE: 'CAFE',
@@ -29,123 +30,120 @@ const normalizeCategory = (category) => {
 export const updateChecklistItem = async (payload) => {
   try {
     const {
+      branchCode,
+      checklistDone,
+      checklistItemId,
+      checklistitemCategory,
+      dateUpdated,
+      employeeAdded,
+      employeeEvaluated,
+
       category,
       submittedBy,
-      dateUpdated,
-      branchCode,
-      checklistItems,
-      employeeEvaluated: defaultEmployeeEvaluated
+      checklistItems
     } = payload || {};
 
-    const normalizedCategory = normalizeCategory(category);
     const normalizedDate = dateUpdated || getCurrentPhilippineDate();
 
-    if (!normalizedCategory) {
-      return {
-        success: false,
-        statusCode: 400,
-        description: 'Invalid category. Allowed values are CAFE, EQUI, CLEA, or EMPL.'
-      };
-    }
+    if (Array.isArray(checklistItems) && checklistItems.length > 0) {
+      const normalizedCategory = normalizeCategory(category || checklistitemCategory);
+      const normalizedBranchCode = String(branchCode || '').trim();
+      const normalizedEmployeeAdded = String(employeeAdded || submittedBy || '').trim();
 
-    if (!submittedBy || !branchCode || !normalizedDate) {
-      return {
-        success: false,
-        statusCode: 400,
-        description: 'submittedBy, dateUpdated, and branchCode are required.'
-      };
-    }
-
-    if (!Array.isArray(checklistItems) || checklistItems.length === 0) {
-      return {
-        success: false,
-        statusCode: 400,
-        description: 'checklistItems must be a non-empty array.'
-      };
-    }
-
-    const dailyDataRef = collection(firestore, 'CHECKLIST_DAILY_DATA');
-    let createdCount = 0;
-    let updatedCount = 0;
-    const itemResults = [];
-
-    for (const item of checklistItems) {
-      const checklistItemId = item?.checklistItemId;
-      const checklistDone = item?.checklistDone;
-
-      if (!checklistItemId || typeof checklistDone === 'undefined') {
-        itemResults.push({
-          checklistItemId: checklistItemId || null,
-          status: 'SKIPPED',
-          reason: 'checklistItemId and checklistDone are required per checklist item.'
-        });
-        continue;
-      }
-
-      const dailyQuery = query(
-        dailyDataRef,
-        where('checklistItemId', '==', checklistItemId),
-        where('dateUpdated', '==', normalizedDate),
-        where('branchCode', '==', branchCode)
+      const results = await Promise.all(
+        checklistItems.map((item) => updateChecklistItem({
+          branchCode: normalizedBranchCode,
+          checklistDone: item?.checklistDone,
+          checklistItemId: item?.checklistItemId,
+          checklistitemCategory: normalizedCategory,
+          dateUpdated: normalizedDate,
+          employeeAdded: normalizedEmployeeAdded,
+          employeeEvaluated: item?.employeeEvaluated || employeeEvaluated || normalizedEmployeeAdded
+        }))
       );
 
-      const existingSnapshot = await getDocs(dailyQuery);
+      const successCount = results.filter((result) => result?.success).length;
+      const failed = results.filter((result) => !result?.success);
 
-      const basePayload = {
-        checklistItemId,
-        checklistitemCategory: normalizedCategory,
-        employeeAdded: submittedBy,
-        dateUpdated: normalizedDate,
-        branchCode,
-        checklistDone
+      return {
+        success: failed.length === 0,
+        statusCode: failed.length === 0 ? 200 : 207,
+        description: failed.length === 0 ? 'Checklist items processed successfully.' : 'Some checklist items failed to process.',
+        summary: {
+          totalItems: checklistItems.length,
+          successCount,
+          failedCount: failed.length
+        },
+        results
       };
-
-      if (normalizedCategory === 'EMPL') {
-        const resolvedEmployeeEvaluated = item.employeeEvaluated || defaultEmployeeEvaluated || submittedBy;
-        basePayload.employeeEvaluated = resolvedEmployeeEvaluated;
-      }
-
-      if (existingSnapshot.empty) {
-        await addDoc(dailyDataRef, basePayload);
-        createdCount += 1;
-        itemResults.push({ checklistItemId, status: 'CREATED' });
-      } else {
-        const updatePayload = {
-          checklistDone: basePayload.checklistDone,
-          employeeAdded: basePayload.employeeAdded,
-          checklistitemCategory: basePayload.checklistitemCategory,
-          dateUpdated: basePayload.dateUpdated,
-          branchCode: basePayload.branchCode
-        };
-
-        if (normalizedCategory === 'EMPL') {
-          updatePayload.employeeEvaluated = basePayload.employeeEvaluated;
-        }
-
-        await Promise.all(existingSnapshot.docs.map((docSnap) => updateDoc(docSnap.ref, updatePayload)));
-        updatedCount += existingSnapshot.size;
-        itemResults.push({
-          checklistItemId,
-          status: 'UPDATED',
-          affectedRows: existingSnapshot.size
-        });
-      }
     }
+
+    const normalizedCategory = normalizeCategory(checklistitemCategory || category);
+    const normalizedBranchCode = String(branchCode || '').trim();
+    const normalizedChecklistItemId = String(checklistItemId || '').trim();
+    const normalizedChecklistDone = String(checklistDone ?? '').trim().toUpperCase();
+    const normalizedEmployeeAdded = String(employeeAdded || submittedBy || '').trim();
+
+    if (!normalizedBranchCode || !normalizedChecklistItemId || !normalizedDate || !normalizedEmployeeAdded || !normalizedCategory) {
+      return {
+        success: false,
+        statusCode: 400,
+        description: 'branchCode, checklistItemId, checklistitemCategory, dateUpdated, and employeeAdded are required.'
+      };
+    }
+
+    if (normalizedChecklistDone !== 'YES' && normalizedChecklistDone !== 'NO') {
+      return {
+        success: false,
+        statusCode: 400,
+        description: 'checklistDone must be YES or NO.'
+      };
+    }
+
+    const dailyDataRef = collection(firestore, collectionList.checklistDailyEntry);
+    const dailyQuery = query(
+      dailyDataRef,
+      where('branchCode', '==', normalizedBranchCode),
+      where('checklistItemId', '==', normalizedChecklistItemId),
+      where('dateUpdated', '==', normalizedDate)
+    );
+
+    const existingSnapshot = await getDocs(dailyQuery);
+
+    const entryPayload = {
+      branchCode: normalizedBranchCode,
+      checklistDone: normalizedChecklistDone,
+      checklistItemId: normalizedChecklistItemId,
+      checklistitemCategory: normalizedCategory,
+      dateUpdated: normalizedDate,
+      employeeAdded: normalizedEmployeeAdded
+    };
+
+    if (normalizedCategory === 'EMPL') {
+      entryPayload.employeeEvaluated = String(employeeEvaluated || normalizedEmployeeAdded).trim();
+    }
+
+    if (existingSnapshot.empty) {
+      await addDoc(dailyDataRef, entryPayload);
+
+      return {
+        success: true,
+        statusCode: 200,
+        description: 'Checklist item created successfully.',
+        action: 'CREATED',
+        data: entryPayload
+      };
+    }
+
+    await Promise.all(existingSnapshot.docs.map((docSnap) => updateDoc(docSnap.ref, entryPayload)));
 
     return {
       success: true,
       statusCode: 200,
-      description: 'Checklist items processed successfully.',
-      summary: {
-        category: normalizedCategory,
-        submittedBy,
-        dateUpdated: normalizedDate,
-        branchCode,
-        totalItems: checklistItems.length,
-        createdCount,
-        updatedCount,
-        itemResults
-      }
+      description: 'Checklist item updated successfully.',
+      action: 'UPDATED',
+      affectedRows: existingSnapshot.size,
+      data: entryPayload
     };
   } catch (error) {
     return {

@@ -1,12 +1,41 @@
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { fetchChecklistItems } from '../../processes/fetchChecklistItems';
+import { updateChecklistItem } from '../../utils/updateChecklistItem';
+import { getStoredItem } from '../../utils/storage';
+import { store } from '../../config/env';
+
+const resolveChecklistTypeFromCategory = (checklistitemCategory) => {
+  const category = String(checklistitemCategory || '').trim().toUpperCase();
+
+  if (category === 'CAFE' || category === 'CLEA') return 'checkBox';
+  if (category === 'EQUI') return 'radio';
+  if (category === 'EMPL') return 'special';
+
+  return 'checkBox';
+};
 
 const DisplayCheckListDetailsModal = ({ isOpen, onClose, checklistitemCategory }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [checklistType, setChecklistType] = useState('checkBox');
   const [checklistItems, setChecklistItems] = useState([]);
+  const [activeEmployeeId, setActiveEmployeeId] = useState('');
+
+  const getCurrentPhilippineDate = () => {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Manila',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).formatToParts(new Date());
+
+    const month = parts.find((part) => part.type === 'month')?.value || '01';
+    const day = parts.find((part) => part.type === 'day')?.value || '01';
+    const year = parts.find((part) => part.type === 'year')?.value || '1970';
+
+    return `${year}-${month}-${day}`;
+  };
 
   useEffect(() => {
     if (!isOpen || !checklistitemCategory) {
@@ -20,15 +49,27 @@ const DisplayCheckListDetailsModal = ({ isOpen, onClose, checklistitemCategory }
 
     let cancelled = false;
 
+    const loadCurrentEmployee = async () => {
+      try {
+        const currentEmployee = JSON.parse((await getStoredItem('currentEmployee')) || '{}');
+        if (!cancelled) {
+          setActiveEmployeeId(String(currentEmployee?.employeeId || '').trim());
+        }
+      } catch {
+        if (!cancelled) setActiveEmployeeId('');
+      }
+    };
+
     const loadChecklistItems = async () => {
       setIsLoading(true);
       setErrorMessage('');
+      setChecklistType(resolveChecklistTypeFromCategory(checklistitemCategory));
 
       try {
         const result = await fetchChecklistItems(checklistitemCategory);
         if (cancelled) return;
 
-        setChecklistType(String(result?.checklistType || 'checkBox'));
+        setChecklistType(resolveChecklistTypeFromCategory(checklistitemCategory));
         setChecklistItems(Array.isArray(result?.checklistItems) ? result.checklistItems : []);
       } catch (error) {
         if (cancelled) return;
@@ -40,24 +81,62 @@ const DisplayCheckListDetailsModal = ({ isOpen, onClose, checklistitemCategory }
     };
 
     loadChecklistItems();
+    loadCurrentEmployee();
 
     return () => {
       cancelled = true;
     };
   }, [isOpen, checklistitemCategory]);
 
-  const updateChecklistDone = (index, value) => {
+  const updateChecklistDone = async (index, value) => {
+    const nextChecklistDone = value ? 'YES' : 'NO';
+    const selectedItem = checklistItems[index] || null;
+    const selectedChecklistItemId = String(selectedItem?.checklistItemId || '').trim();
+    const selectedCategory = String(checklistitemCategory || '').trim().toUpperCase();
+
     setChecklistItems((prev) => prev.map((item, itemIndex) => (
       itemIndex === index
-        ? { ...item, checklistDone: value ? 'YES' : 'NO' }
+        ? { ...item, checklistDone: nextChecklistDone }
         : item
     )));
+
+    if (!selectedChecklistItemId || selectedCategory === 'EMPL') return;
+
+    const submittedBy = String(activeEmployeeId || '').trim();
+    if (!submittedBy) {
+      setErrorMessage('Unable to save checklist update: employee ID not found.');
+      return;
+    }
+
+    const result = await updateChecklistItem({
+      branchCode: String(store.branchCode || '').trim(),
+      checklistDone: nextChecklistDone,
+      checklistItemId: selectedChecklistItemId,
+      checklistitemCategory: selectedCategory,
+      dateUpdated: getCurrentPhilippineDate(),
+      employeeAdded: submittedBy,
+      employeeEvaluated: submittedBy
+    });
+
+    if (!result?.success) {
+      setErrorMessage(result?.description || 'Failed to save checklist update.');
+      setChecklistItems((prev) => prev.map((item, itemIndex) => (
+        itemIndex === index
+          ? { ...item, checklistDone: selectedItem?.checklistDone }
+          : item
+      )));
+      return;
+    }
+
+    if (errorMessage) setErrorMessage('');
   };
 
-  const renderCheckBoxRows = () => {
+  const renderRadioRows = () => {
     return checklistItems.map((item, index) => {
-      const isGoodCondition = String(item.checklistDone || '').toUpperCase() === 'YES';
-      const itemName = item.checklistItemDescription || item.checklistItem || '-';
+      const normalizedDone = String(item.checklistDone ?? '').trim().toUpperCase();
+      const isGoodCondition = normalizedDone === 'YES';
+      const isBroken = normalizedDone === 'NO';
+      const itemName = item.checklistItemDescription || item.checklistItem || item.checklistItemId || '-';
 
       return (
         <View key={`${item.checklistItemId || itemName}-${index}`} style={styles.tableRow}>
@@ -74,17 +153,17 @@ const DisplayCheckListDetailsModal = ({ isOpen, onClose, checklistitemCategory }
             onPress={() => updateChecklistDone(index, false)}
             activeOpacity={0.75}
           >
-            <Text style={styles.statusInputText}>{isGoodCondition ? '◯' : '◉'}</Text>
+            <Text style={styles.statusInputText}>{isBroken ? '◉' : '◯'}</Text>
           </TouchableOpacity>
         </View>
       );
     });
   };
 
-  const renderRadioRows = () => {
+  const renderCheckBoxRows = () => {
     return checklistItems.map((item, index) => {
       const isChecked = String(item.checklistDone || '').toUpperCase() === 'YES';
-      const itemName = item.checklistItemDescription || item.checklistItem || '-';
+      const itemName = item.checklistItemDescription || item.checklistItem || item.checklistItemId || '-';
 
       return (
         <View key={`${item.checklistItemId || itemName}-${index}`} style={styles.tableRow}>
@@ -102,7 +181,7 @@ const DisplayCheckListDetailsModal = ({ isOpen, onClose, checklistitemCategory }
   };
 
   const renderTable = () => {
-    if (checklistType === 'checkBox') {
+    if (checklistType === 'radio') {
       return (
         <>
           <View style={styles.tableHeaderRow}>
@@ -110,19 +189,19 @@ const DisplayCheckListDetailsModal = ({ isOpen, onClose, checklistitemCategory }
             <Text style={[styles.tableHeaderCell, styles.statusCol]}>Good Condition</Text>
             <Text style={[styles.tableHeaderCell, styles.statusCol]}>Broken</Text>
           </View>
-          {renderCheckBoxRows()}
+          {renderRadioRows()}
         </>
       );
     }
 
-    if (checklistType === 'radio') {
+    if (checklistType === 'checkBox') {
       return (
         <>
           <View style={styles.tableHeaderRow}>
             <Text style={[styles.tableHeaderCell, styles.itemCol]}>Checklist Item</Text>
             <Text style={[styles.tableHeaderCell, styles.statusCol]}>Checked</Text>
           </View>
-          {renderRadioRows()}
+          {renderCheckBoxRows()}
         </>
       );
     }
