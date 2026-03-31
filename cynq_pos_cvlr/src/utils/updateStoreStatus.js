@@ -1,6 +1,7 @@
 import { collection, query, where, getDocs, updateDoc, addDoc } from 'firebase/firestore';
 import { firestore } from '../../firebase.js';
-import { store } from '../config/env';
+import { collectionList, store } from '../config/env';
+import { fetchDailySales } from './fetchDailySales';
 
 const PH_TIME_ZONE = 'Asia/Manila';
 
@@ -37,8 +38,65 @@ const getCurrentPhilippineTime12Hour = () => {
   }).format(new Date());
 };
 
-const sendEmailNotification = async (templateId, employeeName, branchName, currentTime, currentDate) => {
+const formatAmount = (value) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric.toFixed(2) : '0.00';
+};
+
+const formatCount = (value) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.trunc(numeric) : 0;
+};
+
+const formatPaymentSummary = (rows = []) => {
+  if (!Array.isArray(rows) || !rows.length) return 'No data available<br/>';
+
+  return rows
+    .map((row) => {
+      const label = String(row.paymentMethodDesc || row.paymentMethodCode || 'Unknown').trim();
+      const amount = formatAmount(row.amount);
+      const transactions = formatCount(row.transactions);
+      return `${label}: ₱${amount} (${transactions} transaction(s))<br/>`;
+    })
+    .join('');
+};
+
+const formatOnlineSummary = (rows = []) => {
+  if (!Array.isArray(rows) || !rows.length) return 'No data available<br/>';
+
+  return rows
+    .map((row) => {
+      const label = String(row.orderModeDesc || row.orderModeCode || 'Unknown').trim();
+      const amount = formatAmount(row.amount);
+      const transactions = formatCount(row.transactions);
+      return `${label}: ₱${amount} (${transactions} transaction(s))<br/>`;
+    })
+    .join('');
+};
+
+const sendEmailNotification = async (
+  templateId,
+  employeeName,
+  branchName,
+  currentTime,
+  currentDate,
+  additionalParameters = {}
+) => {
   try {
+    const normalizedAdditionalParameters = Object.entries(additionalParameters || {}).reduce((acc, [key, value]) => {
+      acc[key] = value == null ? '' : String(value);
+      return acc;
+    }, {});
+
+    const compatibilityParameterAliases = {};
+    for (let index = 5; index <= 20; index += 1) {
+      const value = normalizedAdditionalParameters[`parameter${index}`];
+      if (value === undefined) continue;
+
+      compatibilityParameterAliases[`parm${index}`] = value;
+      compatibilityParameterAliases[`PARM${index}`] = value;
+    }
+
     const response = await fetch('https://cvlr-portal.web.app/api/common/sendEmail', {
       method: 'POST',
       headers: {
@@ -51,7 +109,9 @@ const sendEmailNotification = async (templateId, employeeName, branchName, curre
         parameter1: employeeName,
         parameter2: branchName,
         parameter3: currentTime,
-        parameter4: currentDate
+        parameter4: currentDate,
+        ...normalizedAdditionalParameters,
+        ...compatibilityParameterAliases
       })
     });
 
@@ -136,12 +196,28 @@ export const updateStoreStatus = async (branchCode, employeeName, storeStatus) =
 
       const storeDoc = querySnapshot.docs[0];
 
+      const dailySalesResult = await fetchDailySales(branchCode, currentDate);
+      const dailySalesData = dailySalesResult?.success && dailySalesResult?.data ? dailySalesResult.data : {};
+
+      const closeEmailParameters = {
+        parameter5: formatAmount(dailySalesData.totalSale),
+        parameter6: formatCount(dailySalesData.transactionCount),
+        parameter7: formatCount(dailySalesData.small),
+        parameter8: formatCount(dailySalesData.medium),
+        parameter9: formatCount(dailySalesData.large),
+        parameter10: formatCount(dailySalesData.pastriesSold),
+        parameter11: formatCount(dailySalesData.foodSold),
+        parameter12: formatPaymentSummary(dailySalesData.paymentBreakdown),
+        parameter13: formatOnlineSummary(dailySalesData.orderModeBreakdown)
+      };
+
       const emailResult = await sendEmailNotification(
         'store-close-notification',
         employeeName,
         branchName,
         currentTime12,
-        currentDate
+        currentDate,
+        closeEmailParameters
       );
 
       if (!emailResult.success || emailResult.status !== 'OK') {
@@ -157,6 +233,35 @@ export const updateStoreStatus = async (branchCode, employeeName, storeStatus) =
         staffClose: employeeName,
         closeTime: currentTime24
       });
+
+      const staffingQuery = query(
+        collection(firestore, collectionList.employeeStaffing),
+        where('branchCode', '==', branchCode),
+        where('timeEntryDate', '==', currentDate)
+      );
+
+      const staffingSnapshot = await getDocs(staffingQuery);
+
+      if (!staffingSnapshot.empty) {
+        const docsToUpdate = staffingSnapshot.docs.filter((staffDoc) => {
+          const data = staffDoc.data();
+          const hasTimeOutField = Object.prototype.hasOwnProperty.call(data, 'timeOut');
+          const timeOutValue = data.timeOut;
+          const isBlankString = typeof timeOutValue === 'string' && timeOutValue.trim() === '';
+
+          return !hasTimeOutField || timeOutValue === null || isBlankString;
+        });
+
+        if (docsToUpdate.length > 0) {
+          await Promise.all(
+            docsToUpdate.map((staffDoc) =>
+              updateDoc(staffDoc.ref, {
+                timeOut: currentTime24
+              })
+            )
+          );
+        }
+      }
 
       return {
         success: true,

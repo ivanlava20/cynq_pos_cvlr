@@ -23,6 +23,7 @@ export const fetchDailySales = async (branchCode, orderDate = getCurrentPhilippi
       collection(firestore, 'CYNQ_POS_ORDER_DETAILS'),
       where('branchCode', '==', branchCode),
       where('orderDate', '==', orderDate)
+      //orderDate
     );
 
     const [querySnapshot, paymentMethodSnapshot, orderModeSnapshot] = await Promise.all([
@@ -43,7 +44,6 @@ export const fetchDailySales = async (branchCode, orderDate = getCurrentPhilippi
     const paymentSummary = {};
     const paymentMethodReference = {};
     const paymentBreakdownMap = {};
-    const orderModeReference = {};
     const orderModeBreakdownMap = {};
 
     paymentMethodSnapshot.forEach((methodDoc) => {
@@ -71,7 +71,6 @@ export const fetchDailySales = async (branchCode, orderDate = getCurrentPhilippi
 
       if (!code || !allowedOnlineModes.has(code)) return;
 
-      orderModeReference[code] = description || code;
       orderModeBreakdownMap[code] = {
         orderModeCode: code,
         orderModeDesc: description || code,
@@ -82,38 +81,49 @@ export const fetchDailySales = async (branchCode, orderDate = getCurrentPhilippi
 
     querySnapshot.forEach((doc) => {
       const data = doc.data();
-      const status = data.queueDetails?.orderStatus;
+      const status = String(data.queueDetails?.orderStatus || '').trim().toUpperCase();
       const orderChange = Number(data.orderDetails?.orderChange ?? data.mainDetails?.orderChange ?? 0);
+      const orderModeCode = String(data.orderDetails?.orderMode ?? data.orderMode ?? '').trim().toUpperCase();
+      const orderItems = Array.isArray(data.orderDetails?.orderItems)
+        ? data.orderDetails.orderItems
+        : Array.isArray(data.orderItems)
+          ? data.orderItems
+          : [];
 
-      if (status === 'VOID') return;
+      if (orderModeCode === 'FD') return;
+      if (status !== 'DONE' && status !== 'MAKE') return;
 
-      transactionCount += 1;
-      const totalAmount = Number(data.mainDetails?.totalAmount || 0);
+      const rawTotalAmount = Number(data.mainDetails?.totalAmount);
+      const totalAmount = Number.isFinite(rawTotalAmount) ? rawTotalAmount : 0;
       totalSale += totalAmount;
+      transactionCount += 1;
 
-      const orderModeCode = String(data.orderMode ?? data.orderDetails?.orderMode ?? '').trim().toUpperCase();
       if (orderModeCode && orderModeBreakdownMap[orderModeCode]) {
         orderModeBreakdownMap[orderModeCode].transactions += 1;
         orderModeBreakdownMap[orderModeCode].amount += totalAmount;
       }
 
-      (data.orderItems || []).forEach((item) => {
+      orderItems.forEach((item) => {
         const qty = Number(item.itemQuantity || 0);
+        if (!Number.isFinite(qty) || qty <= 0) return;
+
         const category = String(item.itemCategory || '').toUpperCase();
         const isFoodOrPastry = category === 'FOD' || category === 'PST';
 
         if (!isFoodOrPastry) {
           totalCupsSold += qty;
-        }
 
-        const size = String(item.itemSize || '').trim().toUpperCase();
-        if (size === 'S') small += qty;
-        if (size === 'M') medium += qty;
-        if (size === 'L') large += qty;
+          const size = String(item.itemSize || '').trim().toUpperCase();
+          if (size === 'S') small += qty;
+          if (size === 'M') medium += qty;
+          if (size === 'L') large += qty;
+        }
 
         if (category === 'FOD' || category.includes('FOOD')) foodSold += qty;
         if (category === 'PST' || category.includes('PASTRY')) pastriesSold += qty;
       });
+
+      const countedPaymentMethodsInOrder = new Set();
 
       (data.paymentMethods || []).forEach((pay) => {
         const paymentCode = String(pay.modeOfPayment || '').trim().toUpperCase();
@@ -126,7 +136,11 @@ export const fetchDailySales = async (branchCode, orderDate = getCurrentPhilippi
         if (!paymentCode || !paymentMethodReference[paymentCode]) return;
 
         paymentBreakdownMap[paymentCode].amount += amount;
-        paymentBreakdownMap[paymentCode].transactions += 1;
+
+        if (!countedPaymentMethodsInOrder.has(paymentCode)) {
+          paymentBreakdownMap[paymentCode].transactions += 1;
+          countedPaymentMethodsInOrder.add(paymentCode);
+        }
       });
     });
 

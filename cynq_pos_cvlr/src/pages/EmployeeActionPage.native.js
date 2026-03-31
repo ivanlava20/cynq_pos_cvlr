@@ -595,8 +595,8 @@ const EmployeeActionPage = ({ navigation }) => {
                 ) : deposits.length ? (
                   deposits.map((deposit, index) => (
                     <View key={`${deposit.depositId}-${index}`} style={styles.itemRow}>
-                      <Text style={styles.itemTitle}>{deposit.depositId || 'N/A'}</Text>
-                      <Text style={styles.infoText}>Amount Deposited: ₱{Number(deposit.amountDeposited || 0).toFixed(2)}</Text>
+                      <Text style={styles.itemTitle}>Deposit Number: {deposit.depositId || 'N/A'}</Text>
+                      <Text style={styles.infoText}>Amount: ₱{Number(deposit.amountDeposited || 0).toFixed(2)}</Text>
                     </View>
                   ))
                 ) : (

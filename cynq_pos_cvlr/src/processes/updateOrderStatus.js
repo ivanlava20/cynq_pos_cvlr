@@ -55,6 +55,10 @@ const calculateElapsedTime = (startTime, endTime) => {
   }
 };
 
+const resolveOrderNo = (data = {}) => {
+  return String(data.orderDetails?.orderNo ?? data.orderNo ?? '').trim();
+};
+
 export const updateOrderStatus = async (orderNo, transactionId, branchCode, orderStatus, reason = '') => {
   try {
     if (!orderNo || !transactionId || !branchCode || !orderStatus) {
@@ -73,7 +77,6 @@ export const updateOrderStatus = async (orderNo, transactionId, branchCode, orde
 
     const ordersQuery = query(
       collection(firestore, 'CYNQ_POS_ORDER_DETAILS'),
-      where('orderNo', '==', orderNo),
       where('branchCode', '==', branchCode),
       where('orderDate', '==', currentDate)
     );
@@ -91,7 +94,8 @@ export const updateOrderStatus = async (orderNo, transactionId, branchCode, orde
     let targetDoc = null;
     querySnapshot.forEach((docSnapshot) => {
       const data = docSnapshot.data();
-      if (data.mainDetails?.transactionId === transactionId) {
+      const resolvedOrderNo = resolveOrderNo(data);
+      if (resolvedOrderNo === orderNo && data.mainDetails?.transactionId === transactionId) {
         targetDoc = docSnapshot;
       }
     });

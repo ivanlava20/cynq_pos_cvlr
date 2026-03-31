@@ -32,6 +32,12 @@ const hashString = (input) => {
 };
 
 const buildDedupeKey = ({ payload, branchCode, orderDate, orderMode }) => {
+  const payloadOrderItems = Array.isArray(payload?.orderDetails?.orderItems)
+    ? payload.orderDetails.orderItems
+    : Array.isArray(payload?.orderItems)
+      ? payload.orderItems
+      : [];
+
   const signature = {
     branchCode,
     orderDate,
@@ -50,8 +56,7 @@ const buildDedupeKey = ({ payload, branchCode, orderDate, orderMode }) => {
       retekessNumber: toStringSafe(payload?.tableDetails?.retekessNumber, ''),
       tableNumber: toStringSafe(payload?.tableDetails?.tableNumber, '')
     },
-    orderItems: Array.isArray(payload?.orderItems)
-      ? payload.orderItems.map((item) => ({
+    orderItems: payloadOrderItems.map((item) => ({
           addOns: toStringSafe(item?.addOns, 'None'),
           itemCategory: toStringSafe(item?.itemCategory, ''),
           itemId: toStringSafe(item?.itemId, ''),
@@ -62,8 +67,7 @@ const buildDedupeKey = ({ payload, branchCode, orderDate, orderMode }) => {
           itemSize: toStringSafe(item?.itemSize, ''),
           itemStatus: toStringSafe(item?.itemStatus, 'MAKE'),
           itemTotalAmount: toNumber(item?.itemTotalAmount, 0)
-        }))
-      : [],
+        })),
     paymentMethods: Array.isArray(payload?.paymentMethods)
       ? payload.paymentMethods.map((method) => ({
           modeOfPayment: toStringSafe(method?.modeOfPayment, ''),
@@ -147,6 +151,11 @@ const normalizeCompleteOrderPayload = (rawPayload = {}) => {
   const branchCode = toStringSafe(rawPayload.branchCode ?? rawPayload.mainDetails?.branchCode, '');
   const orderDate = toStringSafe(rawPayload.orderDate ?? rawPayload.orderDetails?.orderDate, getCurrentDate());
   const orderTime = toStringSafe(rawPayload.orderDetails?.orderTime, getCurrentTime());
+  const rawOrderItems = Array.isArray(rawPayload.orderDetails?.orderItems)
+    ? rawPayload.orderDetails.orderItems
+    : Array.isArray(rawPayload.orderItems)
+      ? rawPayload.orderItems
+      : [];
 
   const discountInput = rawPayload.discountDetails || {};
   const tableInput = rawPayload.tableDetails || {};
@@ -177,12 +186,29 @@ const normalizeCompleteOrderPayload = (rawPayload = {}) => {
     orderDetails: {
       consumeMethod: toStringSafe(rawPayload.orderDetails?.consumeMethod, ''),
       orderChange: toNumber(rawPayload.orderDetails?.orderChange, 0),
+      orderMode,
+      orderNo,
       orderNote: toStringSafe(rawPayload.orderDetails?.orderNote, ''),
+      orderPaymentTotalAmount: toNumber(rawPayload.orderDetails?.orderPaymentTotalAmount, 0),
       orderTakenBy: toStringSafe(rawPayload.orderDetails?.orderTakenBy, ''),
-      orderTime
+      orderTime,
+      orderItems: rawOrderItems.map((item) => ({
+        addOns: toStringSafe(item?.addOns, 'None'),
+        id: toStringSafe(item?.id, ''),
+        itemCategory: toStringSafe(item?.itemCategory, ''),
+        itemId: toStringSafe(item?.itemId, ''),
+        itemName: toStringSafe(item?.itemName, ''),
+        itemNotes: toStringSafe(item?.itemNotes, 'NA'),
+        itemPrice: toNumber(item?.itemPrice, 0),
+        itemQuantity: toNumber(item?.itemQuantity, 0),
+        itemSize: toStringSafe(item?.itemSize, ''),
+        itemStatus: toStringSafe(item?.itemStatus, 'MAKE'),
+        itemTotalAmount: toNumber(item?.itemTotalAmount, 0),
+        orderMode,
+        orderNo
+      }))
     },
-    orderItems: Array.isArray(rawPayload.orderItems)
-      ? rawPayload.orderItems.map((item) => ({
+    orderItems: rawOrderItems.map((item) => ({
           addOns: toStringSafe(item?.addOns, 'None'),
           id: toStringSafe(item?.id, ''),
           itemCategory: toStringSafe(item?.itemCategory, ''),
@@ -196,8 +222,7 @@ const normalizeCompleteOrderPayload = (rawPayload = {}) => {
           itemTotalAmount: toNumber(item?.itemTotalAmount, 0),
           orderMode,
           orderNo
-        }))
-      : [],
+        })),
     paymentMethods: Array.isArray(rawPayload.paymentMethods)
       ? rawPayload.paymentMethods.map((method) => ({
           id: toNumber(method?.id, 0),

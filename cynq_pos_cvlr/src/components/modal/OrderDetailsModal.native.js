@@ -40,6 +40,20 @@ const OrderDetailsModal = ({ isOpen, onClose, orderData, onDone, onVoid }) => {
   }, [isOpen, orderData]);
 
   const orderStatus = useMemo(() => fullOrderData?.queueDetails?.orderStatus || orderData?.orderStatus || '', [fullOrderData, orderData]);
+  const resolvedOrderMode = useMemo(
+    () => fullOrderData?.orderDetails?.orderMode || fullOrderData?.orderMode || '-',
+    [fullOrderData]
+  );
+  const resolvedOrderChange = useMemo(() => {
+    const value = fullOrderData?.orderDetails?.orderChange ?? fullOrderData?.mainDetails?.orderChange ?? 0;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }, [fullOrderData]);
+  const resolvedOrderItems = useMemo(() => {
+    if (Array.isArray(fullOrderData?.orderDetails?.orderItems)) return fullOrderData.orderDetails.orderItems;
+    if (Array.isArray(fullOrderData?.orderItems)) return fullOrderData.orderItems;
+    return [];
+  }, [fullOrderData]);
   const showActions = orderStatus === 'MAKE';
 
   const closeVoidReasonModal = () => {
@@ -100,13 +114,14 @@ const OrderDetailsModal = ({ isOpen, onClose, orderData, onDone, onVoid }) => {
               <View style={styles.summaryCard}>
                 <Text style={styles.summaryLine}>Order No: {orderData?.orderNo || '-'}</Text>
                 <Text style={styles.summaryLine}>Customer: {fullOrderData?.mainDetails?.customerName || '-'}</Text>
-                <Text style={styles.summaryLine}>Mode: {fullOrderData?.orderMode || '-'}</Text>
+                <Text style={styles.summaryLine}>Mode: {resolvedOrderMode}</Text>
+                <Text style={styles.summaryLine}>Change: ₱{resolvedOrderChange.toFixed(2)}</Text>
                 <Text style={styles.summaryLine}>Status: {orderStatus || '-'}</Text>
               </View>
 
               <ScrollView style={styles.itemsList} contentContainerStyle={{ paddingBottom: 8 }}>
-                {(fullOrderData?.orderItems || []).map((item) => (
-                  <View key={item.id} style={styles.itemCard}>
+                {resolvedOrderItems.map((item, index) => (
+                  <View key={item.id || `${item.itemId || 'item'}-${index}`} style={styles.itemCard}>
                     <Text style={styles.itemTitle}>{item.itemName}</Text>
                     <Text style={styles.itemMeta}>Size: {item.itemSize || '-'}</Text>
                     <Text style={styles.itemMeta}>Qty: {item.itemQuantity || 0}</Text>

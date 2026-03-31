@@ -83,6 +83,22 @@ const sortQueueByFcfs = (items) => {
   });
 };
 
+const getOrderModeCode = (data = {}) => {
+  return String(data.orderDetails?.orderMode ?? data.orderMode ?? '')
+    .trim()
+    .toUpperCase();
+};
+
+const getOrderNo = (data = {}) => {
+  return String(data.orderDetails?.orderNo ?? data.orderNo ?? '').trim();
+};
+
+const getOrderItems = (data = {}) => {
+  if (Array.isArray(data.orderDetails?.orderItems)) return data.orderDetails.orderItems;
+  if (Array.isArray(data.orderItems)) return data.orderItems;
+  return [];
+};
+
 export const loadQueueSummary = async (branchCode, callback) => {
   try {
     await loadOrderModes();
@@ -106,21 +122,24 @@ export const loadQueueSummary = async (branchCode, callback) => {
 
         snapshot.forEach((doc) => {
           const data = doc.data();
+          const orderModeCode = getOrderModeCode(data);
+          const orderNo = getOrderNo(data);
+          const orderItems = getOrderItems(data);
 
           //if (data.orderMode === 'FD') return;
 
           const queueItem = {
             id: data.mainDetails?.transactionId || doc.id,
             name: data.mainDetails?.customerName || 'Unknown',
-            items: data.orderItems?.length || 0,
+            items: orderItems.length || 0,
             time: data.queueDetails?.elapsedTime || '0:00',
             startTime: data.queueDetails?.startTime || '',
             isStarted: Boolean(data.queueDetails?.isStarted),
             createdAt: data.createdAt || '',
-            orderMode: getOrderModeDesc(data.orderMode),
-            color: getOrderModeColor(data.orderMode),
+            orderMode: getOrderModeDesc(orderModeCode),
+            color: getOrderModeColor(orderModeCode),
             orderStatus: data.queueDetails?.orderStatus || 'MAKE',
-            orderNo: data.orderNo || '',
+            orderNo,
             orderDate: data.orderDate || '',
             branchCode: data.branchCode || ''
           };
@@ -165,20 +184,24 @@ export const loadQueueByStatus = async (branchCode, orderStatus, callback) => {
 
         snapshot.forEach((doc) => {
           const data = doc.data();
-          if (data.orderMode === 'FD') return;
+          const orderModeCode = getOrderModeCode(data);
+          const orderNo = getOrderNo(data);
+          const orderItems = getOrderItems(data);
+
+          if (orderModeCode === 'FD') return;
 
           queueData.push({
             id: data.mainDetails?.transactionId || doc.id,
             name: data.mainDetails?.customerName || 'Unknown',
-            items: data.orderItems?.length || 0,
+            items: orderItems.length || 0,
             time: data.queueDetails?.elapsedTime || '0:00',
             startTime: data.queueDetails?.startTime || '',
             isStarted: Boolean(data.queueDetails?.isStarted),
             createdAt: data.createdAt || '',
-            orderMode: getOrderModeDesc(data.orderMode),
-            color: getOrderModeColor(data.orderMode),
+            orderMode: getOrderModeDesc(orderModeCode),
+            color: getOrderModeColor(orderModeCode),
             orderStatus: data.queueDetails?.orderStatus || 'MAKE',
-            orderNo: data.orderNo || '',
+            orderNo,
             orderDate: data.orderDate || '',
             branchCode: data.branchCode || ''
           });

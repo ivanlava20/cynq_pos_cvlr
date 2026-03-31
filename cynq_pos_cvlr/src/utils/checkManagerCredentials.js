@@ -1,5 +1,10 @@
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { firestore } from '../../firebase.js';
+import { getStoredItem } from './storage';
+
+const normalizeEmployeeIdInput = (value) => {
+  return String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+};
 
 /**
  * Get current date in Philippines timezone
@@ -42,6 +47,28 @@ export const checkManagerCredentials = async (managerEmployeeId, password) => {
       return {
         status: 'FAIL',
         message: 'Employee ID and password are required.'
+      };
+    }
+
+    const pendingEmployeeRaw = await getStoredItem('pendingEmployee');
+    let pendingEmployeeId = '';
+
+    if (pendingEmployeeRaw) {
+      try {
+        const parsedPendingEmployee = JSON.parse(pendingEmployeeRaw);
+        pendingEmployeeId = normalizeEmployeeIdInput(parsedPendingEmployee?.employeeId);
+      } catch (error) {
+        pendingEmployeeId = '';
+      }
+    }
+
+    const normalizedManagerEmployeeId = normalizeEmployeeIdInput(managerEmployeeId);
+
+    if (pendingEmployeeId && normalizedManagerEmployeeId === pendingEmployeeId) {
+      console.log('Validation failed: Manager employee ID cannot be the same as the pending employee ID');
+      return {
+        status: 'FAIL',
+        message: 'Manager approval must come from a different employee.'
       };
     }
 

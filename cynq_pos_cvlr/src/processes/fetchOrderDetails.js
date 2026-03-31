@@ -23,7 +23,6 @@ export const fetchOrderDetails = async (orderNo, orderDate, branchCode) => {
     // Query to find the order
     const ordersQuery = query(
       collection(firestore, 'CYNQ_POS_ORDER_DETAILS'),
-      where('orderNo', '==', orderNo),
       where('orderDate', '==', orderDate),
       where('branchCode', '==', branchCode)
     );
@@ -31,7 +30,13 @@ export const fetchOrderDetails = async (orderNo, orderDate, branchCode) => {
     console.log('Querying Firestore...');
     const querySnapshot = await getDocs(ordersQuery);
 
-    if (querySnapshot.empty) {
+    const matchedDocs = querySnapshot.docs.filter((docSnap) => {
+      const data = docSnap.data() || {};
+      const resolvedOrderNo = String(data.orderDetails?.orderNo ?? data.orderNo ?? '').trim();
+      return resolvedOrderNo === String(orderNo).trim();
+    });
+
+    if (!matchedDocs.length) {
       console.log('❌ No order found matching the criteria');
       return {
         success: false,
@@ -40,10 +45,10 @@ export const fetchOrderDetails = async (orderNo, orderDate, branchCode) => {
       };
     }
 
-    console.log(`✅ Found ${querySnapshot.size} matching document(s)`);
+    console.log(`✅ Found ${matchedDocs.length} matching document(s)`);
 
     // Get the first matching document
-    const doc = querySnapshot.docs[0];
+    const doc = matchedDocs[0];
     const orderData = {
       id: doc.id,
       ...doc.data()
@@ -95,33 +100,27 @@ export const fetchMultipleOrders = async (orderNumbers, orderDate, branchCode) =
       throw new Error('orderDate and branchCode are required');
     }
 
-    // Firestore 'in' query can handle up to 10 values at a time
-    if (orderNumbers.length > 10) {
-      console.warn('⚠️  More than 10 order numbers provided. Will fetch in batches.');
-    }
+    const normalizedOrderNumbers = new Set(orderNumbers.map((value) => String(value || '').trim()));
+
+    const ordersQuery = query(
+      collection(firestore, 'CYNQ_POS_ORDER_DETAILS'),
+      where('orderDate', '==', orderDate),
+      where('branchCode', '==', branchCode)
+    );
+
+    const querySnapshot = await getDocs(ordersQuery);
 
     const orders = [];
+    querySnapshot.forEach((doc) => {
+      const data = doc.data() || {};
+      const resolvedOrderNo = String(data.orderDetails?.orderNo ?? data.orderNo ?? '').trim();
+      if (!normalizedOrderNumbers.has(resolvedOrderNo)) return;
 
-    // Split into batches of 10
-    for (let i = 0; i < orderNumbers.length; i += 10) {
-      const batch = orderNumbers.slice(i, i + 10);
-
-      const ordersQuery = query(
-        collection(firestore, 'CYNQ_POS_ORDER_DETAILS'),
-        where('orderNo', 'in', batch),
-        where('orderDate', '==', orderDate),
-        where('branchCode', '==', branchCode)
-      );
-
-      const querySnapshot = await getDocs(ordersQuery);
-
-      querySnapshot.forEach((doc) => {
-        orders.push({
-          id: doc.id,
-          ...doc.data()
-        });
+      orders.push({
+        id: doc.id,
+        ...data
       });
-    }
+    });
 
     console.log(`✅ Found ${orders.length} order(s)`);
     console.log('===============================\n');

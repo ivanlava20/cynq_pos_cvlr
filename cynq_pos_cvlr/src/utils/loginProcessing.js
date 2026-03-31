@@ -3,13 +3,58 @@ import { firestore } from '../../firebase.js';
 import { getStoredItem, removeStoredItem, setStoredItem } from './storage';
 
 const getPhilippinesDate = () => {
-  const now = new Date();
-  return new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Manila',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(new Date());
+
+  const year = Number(parts.find((part) => part.type === 'year')?.value || '1970');
+  const month = Number(parts.find((part) => part.type === 'month')?.value || '01');
+  const day = Number(parts.find((part) => part.type === 'day')?.value || '01');
+
+  return new Date(Date.UTC(year, month - 1, day));
 };
 
 const getDaysDifference = (startDate, endDate) => {
-  const diffTime = Math.abs(endDate - startDate);
-  return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  const startTime = startDate?.getTime?.();
+  const endTime = endDate?.getTime?.();
+
+  if (!Number.isFinite(startTime) || !Number.isFinite(endTime)) {
+    return NaN;
+  }
+
+  const diffTime = Math.abs(endTime - startTime);
+  return Math.floor(diffTime / (1000 * 60 * 60 * 24));
+};
+
+const parseHireDate = (hireDate) => {
+  if (hireDate && typeof hireDate.toDate === 'function') {
+    const value = hireDate.toDate();
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+
+  if (hireDate instanceof Date) {
+    return Number.isNaN(hireDate.getTime()) ? null : hireDate;
+  }
+
+  if (typeof hireDate === 'string') {
+    const trimmed = hireDate.trim();
+    const simpleDateMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+    if (simpleDateMatch) {
+      const year = Number(simpleDateMatch[1]);
+      const month = Number(simpleDateMatch[2]);
+      const day = Number(simpleDateMatch[3]);
+      return new Date(Date.UTC(year, month - 1, day));
+    }
+
+    const parsed = new Date(trimmed);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  return null;
 };
 
 const normalizeEmploymentStatus = (status) => {
@@ -38,6 +83,15 @@ const canonicalEmployeeId = (value) => {
 
 const getEmployeeIdFromData = (data) => {
   return data?.employeeId || data?.employeeID || data?.employee_id || '';
+};
+
+const logNeedsManagerAccessDecision = ({ employeeId, roleChar, needsManagerAccess, daysSinceHire }) => {
+  console.log('[processLogin] needsManagerAccess decision', {
+    employeeId,
+    roleChar,
+    needsManagerAccess,
+    daysSinceHire: typeof daysSinceHire === 'number' ? daysSinceHire : null
+  });
 };
 
 export const processLogin = async (employeeId) => {
@@ -134,6 +188,12 @@ export const processLogin = async (employeeId) => {
     const roleChar = resolvedEmployeeId.charAt(3).toUpperCase();
 
     if (roleChar === 'M' || roleChar === 'F') {
+      logNeedsManagerAccessDecision({
+        employeeId: resolvedEmployeeId,
+        roleChar,
+        needsManagerAccess: 'N'
+      });
+
       const result = {
         success: true,
         employeeId: resolvedEmployeeId,
@@ -160,12 +220,9 @@ export const processLogin = async (employeeId) => {
     if (roleChar === 'O') {
       const currentDate = getPhilippinesDate();
 
-      let hireDateObj;
-      if (hireDate && hireDate.toDate) {
-        hireDateObj = hireDate.toDate();
-      } else if (typeof hireDate === 'string') {
-        hireDateObj = new Date(hireDate);
-      } else {
+      const hireDateObj = parseHireDate(hireDate);
+
+      if (!hireDateObj) {
         return {
           success: false,
           status: 'FAIL',
@@ -175,7 +232,22 @@ export const processLogin = async (employeeId) => {
 
       const daysSinceHire = getDaysDifference(hireDateObj, currentDate);
 
+      if (!Number.isFinite(daysSinceHire)) {
+        return {
+          success: false,
+          status: 'FAIL',
+          message: 'Invalid hire date format. Please contact HR.'
+        };
+      }
+
       if (daysSinceHire < 30) {
+        logNeedsManagerAccessDecision({
+          employeeId: resolvedEmployeeId,
+          roleChar,
+          needsManagerAccess: 'Y',
+          daysSinceHire
+        });
+
         const result = {
           success: true,
           employeeId: resolvedEmployeeId,
@@ -189,6 +261,13 @@ export const processLogin = async (employeeId) => {
         await setStoredItem('pendingEmployee', JSON.stringify(result));
         return result;
       }
+
+      logNeedsManagerAccessDecision({
+        employeeId: resolvedEmployeeId,
+        roleChar,
+        needsManagerAccess: 'N',
+        daysSinceHire
+      });
 
       const result = {
         success: true,
