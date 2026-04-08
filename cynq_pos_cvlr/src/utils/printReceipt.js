@@ -1,5 +1,4 @@
 import * as Print from 'expo-print';
-import { shareAsync } from 'expo-sharing';
 import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system';
 import { collection, getDocs, query, where } from 'firebase/firestore';
@@ -10,8 +9,10 @@ import { firestore } from '../../firebase';
 const DEFAULT_PRINTER_NAME = 'VOZY P50';
 const DEFAULT_PRINTER_MAC = '5A:4A:48:1C:87:20';
 let receiptLogoDataUri = '';
+let receiptLogoUriFallback = '';
 let bluetoothLogoSourceKey = '';
 let bluetoothLogoBase64Cache = '';
+let lastSuccessfulBluetoothDevice = null;
 const branchDescriptionCache = {};
 
 const getBranchDescription = async (branchCodeInput = '') => {
@@ -63,6 +64,7 @@ const getReceiptLogoSrc = async (logoOverride = '') => {
   }
 
   if (receiptLogoDataUri) return receiptLogoDataUri;
+  if (receiptLogoUriFallback) return receiptLogoUriFallback;
 
   try {
     const logoAsset = Asset.fromModule(require('../../assets/logo_receipt_white.png'));
@@ -73,15 +75,34 @@ const getReceiptLogoSrc = async (logoOverride = '') => {
     const logoUri = logoAsset.localUri || logoAsset.uri;
     if (!logoUri) return '';
 
-    const base64Logo = await FileSystem.readAsStringAsync(logoUri, {
-      encoding: FileSystem.EncodingType.Base64
-    });
+    receiptLogoUriFallback = logoUri;
 
-    receiptLogoDataUri = `data:image/png;base64,${base64Logo}`;
-    return receiptLogoDataUri;
+    try {
+      const base64Logo = await FileSystem.readAsStringAsync(logoUri, {
+        encoding: FileSystem.EncodingType.Base64
+      });
+
+      receiptLogoDataUri = `data:image/png;base64,${base64Logo}`;
+      return receiptLogoDataUri;
+    } catch {
+      return receiptLogoUriFallback;
+    }
   } catch (error) {
     console.warn('Failed to load receipt logo for printing:', error?.message || error);
     return '';
+  }
+};
+
+export const preloadReceiptAssets = async (branchCode = '') => {
+  try {
+    await getReceiptLogoSrc();
+
+    const normalizedBranchCode = String(branchCode || '').trim();
+    if (normalizedBranchCode && !branchDescriptionCache[normalizedBranchCode]) {
+      await getBranchDescription(normalizedBranchCode);
+    }
+  } catch (error) {
+    console.warn('Receipt preload failed:', error?.message || error);
   }
 };
 
@@ -103,6 +124,8 @@ const normalizeDevice = (device = {}) => ({
   name: String(device.name || device.deviceName || device.device_name || '').trim(),
   address: String(device.address || device.mac || device.macAddress || device.id || '').trim()
 });
+
+const normalizeMacAddress = (value = '') => String(value || '').toUpperCase().replace(/[^A-F0-9]/g, '');
 
 const isRealConfiguredValue = (value, fallback) => {
   const normalized = String(value || '').trim();
@@ -205,7 +228,8 @@ const extractBase64ImageData = (logoSrc = '') => {
     return trimmed.slice(commaIndex + 1);
   }
 
-  return trimmed;
+  const looksLikeBase64 = /^[A-Za-z0-9+/=\r\n]+$/.test(trimmed);
+  return looksLikeBase64 ? trimmed : '';
 };
 
 const writeBase64ToCacheFile = async (base64Data = '', extension = 'png') => {
@@ -321,12 +345,10 @@ const fetchBluetoothDevices = async (BluetoothManager) => {
     connected.push(...parseDeviceList(await BluetoothManager.getConnectedDevices()));
   }
 
-  if (typeof BluetoothManager.enableBluetooth === 'function') {
-    bonded.push(...parseDeviceList(await BluetoothManager.enableBluetooth()));
-  }
-
   if (typeof BluetoothManager.getBondedDevices === 'function') {
     bonded.push(...parseDeviceList(await BluetoothManager.getBondedDevices()));
+  } else if (typeof BluetoothManager.enableBluetooth === 'function') {
+    bonded.push(...parseDeviceList(await BluetoothManager.enableBluetooth()));
   }
 
   return {
@@ -336,22 +358,28 @@ const fetchBluetoothDevices = async (BluetoothManager) => {
 };
 
 const pickPrinterDevice = (connectedDevices, bondedDevices) => {
-  const configuredName = isRealConfiguredValue(configuredPrinter?.name, DEFAULT_PRINTER_NAME)
-    ? String(configuredPrinter.name).trim().toLowerCase()
-    : '';
-
-  const configuredMac = isRealConfiguredValue(configuredPrinter?.mac, DEFAULT_PRINTER_MAC)
-    ? String(configuredPrinter.mac).trim().toLowerCase()
-    : '';
+  const configuredName = String(configuredPrinter?.name || '').trim().toLowerCase();
+  const configuredMac = normalizeMacAddress(configuredPrinter?.mac || '');
+  const defaultName = String(DEFAULT_PRINTER_NAME || '').trim().toLowerCase();
+  const defaultMac = normalizeMacAddress(DEFAULT_PRINTER_MAC || '');
 
   const all = [...connectedDevices, ...bondedDevices];
   if (!all.length) return null;
 
-  const configuredMatch = all.find((device) => {
-    const byMac = configuredMac && device.address.toLowerCase() === configuredMac;
-    const byName = configuredName && device.name.toLowerCase() === configuredName;
-    return byMac || byName;
-  });
+  const findMatch = (targetMac, targetName) => {
+    return all.find((device) => {
+      const deviceMac = normalizeMacAddress(device.address);
+      const deviceName = String(device.name || '').trim().toLowerCase();
+      const byMac = targetMac && deviceMac && deviceMac === targetMac;
+      const byName = targetName && deviceName && deviceName === targetName;
+      return byMac || byName;
+    });
+  };
+
+  const defaultMatch = findMatch(defaultMac, defaultName);
+  if (defaultMatch) return defaultMatch;
+
+  const configuredMatch = findMatch(configuredMac, configuredName);
 
   if (configuredMatch) return configuredMatch;
   if (connectedDevices.length) return connectedDevices[0];
@@ -378,6 +406,30 @@ const printViaBluetoothIfAvailable = async (plainText, logoSrc = '') => {
 
     if (!BluetoothManager || !BluetoothEscposPrinter) {
       return { success: false, reason: 'Bluetooth printer module is unavailable' };
+    }
+
+    if (lastSuccessfulBluetoothDevice?.address) {
+      try {
+        if (typeof BluetoothManager.connect === 'function') {
+          await BluetoothManager.connect(lastSuccessfulBluetoothDevice.address);
+        }
+        if (typeof BluetoothEscposPrinter.printerInit === 'function') {
+          await BluetoothEscposPrinter.printerInit();
+        }
+        await tryPrintBluetoothLogo(BluetoothEscposPrinter, logoSrc);
+        if (typeof BluetoothEscposPrinter.printText === 'function') {
+          await BluetoothEscposPrinter.printText(plainText, {
+            encoding: 'GBK',
+            codepage: 0,
+            widthtimes: 1,
+            heigthtimes: 1,
+            fonttype: 1
+          });
+          return { success: true, device: lastSuccessfulBluetoothDevice };
+        }
+      } catch {
+        lastSuccessfulBluetoothDevice = null;
+      }
     }
 
     const { connected, bonded } = await fetchBluetoothDevices(BluetoothManager);
@@ -412,6 +464,8 @@ const printViaBluetoothIfAvailable = async (plainText, logoSrc = '') => {
       fonttype: 1
     });
 
+    lastSuccessfulBluetoothDevice = targetDevice;
+
     return { success: true, device: targetDevice };
   } catch (error) {
     return { success: false, reason: error?.message || 'Bluetooth print failed' };
@@ -442,7 +496,6 @@ export const printReceipt = async (receiptData) => {
     const tableDetails = payload.tableDetails || {};
     const orderDetails = payload.orderDetails || {};
     const payloadBranchCode = String(payload.branchCode || mainDetails.branchCode || '').trim();
-    const branchDesc = await getBranchDescription(payloadBranchCode);
 
     const {
       branchName: payloadBranchName = '',
@@ -466,6 +519,10 @@ export const printReceipt = async (receiptData) => {
       baristaOnDuty = { name: orderDetails.orderTakenBy || 'Staff' },
       retekessNumber = tableDetails.retekessNumber || ''
     } = payload;
+
+    const branchDesc = payloadBranchName || !payloadBranchCode
+      ? ''
+      : await getBranchDescription(payloadBranchCode);
 
     const branchName = branchDesc || payloadBranchName || payloadBranchCode || 'Unknown Branch';
     const formattedTransactionDate = formatOrderDateAndTime(orderDate, orderTime) || new Date().toLocaleDateString();
@@ -535,23 +592,32 @@ export const printReceipt = async (receiptData) => {
               font-family: 'Arial', sans-serif;
               margin: 0;
               padding: 0;
+              width: 80mm;
               font-size: 12px;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+            @page {
+              size: 80mm auto;
+              margin: 3mm 0 0 0;
             }
             .table-spacing {
               border-spacing: 30px;
             }
             .receipt-container {
-              max-width: 300px;
-              margin: 0 auto;
-              padding: 20px;
-              border: 1px dashed #000;
+              width: 100%;
+              max-width: 100%;
+              margin: 0;
+              padding: 2.5mm 0.5mm 0.5mm 0.5mm;
+              box-sizing: border-box;
+              border: none;
             }
             .receipt-logo {
               text-align: center;
               margin-bottom: 10px;
             }
             .receipt-logo img {
-              max-width: 100px;
+              max-width: 42mm;
               height: auto;
             }
             .receipt-header {
@@ -561,7 +627,7 @@ export const printReceipt = async (receiptData) => {
               padding-bottom: 1px;
             }
             .receipt-body {
-              margin: 20px 0;
+              margin: 8px 0;
             }
             .receipt-body .section {
               margin-bottom: 10px;
@@ -578,12 +644,14 @@ export const printReceipt = async (receiptData) => {
             }
             table {
               width: 100%;
-              font-size: 12px;
+              font-size: 11px;
               border-collapse: collapse;
+              table-layout: fixed;
             }
             table th, table td {
               text-align: left;
-              padding: 4px;
+              padding: 2px;
+              word-break: break-word;
             }
             hr {
               border: none;
@@ -595,7 +663,7 @@ export const printReceipt = async (receiptData) => {
         <body>
           <div class="receipt-container">
             <div class="receipt-logo">
-              <img src="/logo_receipt_white.png" alt="Company Logo" />
+              ${receiptLogoSrc ? `<img src="${receiptLogoSrc}" alt="Company Logo" />` : ''}
             </div>
             <div class="receipt-header">
               <h3>Cafe Vanleroe</h3>
@@ -681,19 +749,10 @@ export const printReceipt = async (receiptData) => {
       </html>
     `;
 
-    // Print using expo-print
-    const { uri } = await Print.printToFileAsync({ html: htmlContent });
-    
-    // For Bluetooth printing, you can use the generated PDF with a Bluetooth printer library
-    // Option 1: Share the receipt (allows user to select printer)
-    await shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+    await Print.printAsync({ html: htmlContent });
 
-    // Option 2: For direct Bluetooth printing, integrate with a Bluetooth printer library
-    // Example: react-native-thermal-receipt-printer or similar
-    // await BluetoothPrinter.print(uri);
-
-    console.log('Receipt printed successfully via share flow', bluetoothResult.reason ? `(${bluetoothResult.reason})` : '');
-    return { success: true, uri, method: 'share' };
+    console.log('Receipt printed successfully via direct flow', bluetoothResult.reason ? `(${bluetoothResult.reason})` : '');
+    return { success: true, method: 'direct' };
   } catch (error) {
     console.error('Error printing receipt:', error);
     return { success: false, error: error.message };
@@ -712,7 +771,6 @@ export const printReceiptDirect = async (receiptData) => {
       receiptData?.mainDetails?.branchCode ||
       ''
     ).trim();
-    const branchDesc = await getBranchDescription(branchCode);
 
     const logoOverride =
       receiptData?.receiptLogoBase64 ||
@@ -739,6 +797,10 @@ export const printReceiptDirect = async (receiptData) => {
       baristaOnDuty = { name: 'Staff' },
       retekessNumber = ''
     } = receiptData;
+
+    const branchDesc = payloadBranchName || !branchCode
+      ? ''
+      : await getBranchDescription(branchCode);
 
     const branchName = branchDesc || payloadBranchName || branchCode || 'Unknown Branch';
     const formattedTransactionDate = formatOrderDateAndTime(orderDate, orderTime) || new Date().toLocaleDateString();
@@ -775,20 +837,29 @@ export const printReceiptDirect = async (receiptData) => {
               font-family: 'Arial', sans-serif;
               margin: 0;
               padding: 0;
+              width: 80mm;
               font-size: 12px;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+            @page {
+              size: 80mm auto;
+              margin: 3mm 0 0 0;
             }
             .receipt-container {
-              max-width: 300px;
-              margin: 0 auto;
-              padding: 20px;
-              border: 1px dashed #000;
+              width: 100%;
+              max-width: 100%;
+              margin: 0;
+              padding: 2.5mm 0.5mm 0.5mm 0.5mm;
+              box-sizing: border-box;
+              border: none;
             }
             .receipt-logo {
               text-align: center;
               margin-bottom: 10px;
             }
             .receipt-logo img {
-              max-width: 100px;
+              max-width: 42mm;
               height: auto;
             }
             .receipt-header {
@@ -798,7 +869,7 @@ export const printReceiptDirect = async (receiptData) => {
               padding-bottom: 1px;
             }
             .receipt-body {
-              margin: 20px 0;
+              margin: 8px 0;
             }
             .receipt-body .section {
               margin-bottom: 10px;
@@ -815,12 +886,14 @@ export const printReceiptDirect = async (receiptData) => {
             }
             table {
               width: 100%;
-              font-size: 12px;
+              font-size: 11px;
               border-collapse: collapse;
+              table-layout: fixed;
             }
             table th, table td {
               text-align: left;
-              padding: 4px;
+              padding: 2px;
+              word-break: break-word;
             }
             hr {
               border: none;

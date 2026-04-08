@@ -1,5 +1,5 @@
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
-import { firestore } from '../../firebase.js';
+import { firestore, isFirebaseConfigComplete, missingFirebaseConfigKeys } from '../../firebase.js';
 import { getStoredItem, removeStoredItem, setStoredItem } from './storage';
 
 const getPhilippinesDate = () => {
@@ -106,6 +106,15 @@ export const processLogin = async (employeeId) => {
       };
     }
 
+    if (!isFirebaseConfigComplete) {
+      const missingConfigList = missingFirebaseConfigKeys.join(', ');
+      return {
+        success: false,
+        status: 'FAIL',
+        message: `App configuration is missing Firebase settings (${missingConfigList}). Please contact the administrator.`
+      };
+    }
+
     if (!firestore) {
       return {
         success: false,
@@ -167,6 +176,21 @@ export const processLogin = async (employeeId) => {
 
     if (!employeeDoc) {
       const errorCode = String(lookupError?.code || '').toLowerCase();
+      const lookupErrorMessage = String(lookupError?.message || '').toLowerCase();
+
+      if (
+        lookupErrorMessage.includes('project') ||
+        lookupErrorMessage.includes('apikey') ||
+        lookupErrorMessage.includes('api key') ||
+        lookupErrorMessage.includes('invalid')
+      ) {
+        return {
+          success: false,
+          status: 'FAIL',
+          message: 'App configuration is missing Firebase settings. Please contact the administrator.'
+        };
+      }
+
       if (errorCode.includes('permission-denied')) {
         return {
           success: false,

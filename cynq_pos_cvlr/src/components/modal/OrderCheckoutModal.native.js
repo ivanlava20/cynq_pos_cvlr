@@ -9,7 +9,7 @@ const PAYMENT_METHODS = [
   { paymentMethodCode: 'GTYM', paymentMethodDesc: 'GoTyme' }
 ];
 
-const OrderCheckoutModal = ({ isOpen, onClose, payload, onConfirm, docked = false }) => {
+const OrderCheckoutModal = ({ isOpen, onClose, payload, onConfirm, docked = false, isSubmitting = false }) => {
   const orderTotal = useMemo(() => Number(payload?.mainDetails?.totalAmount || 0), [payload]);
 
   const [paymentMethods, setPaymentMethods] = useState([]);
@@ -26,7 +26,8 @@ const OrderCheckoutModal = ({ isOpen, onClose, payload, onConfirm, docked = fals
   }, [isOpen, orderTotal]);
 
   const totalPaid = paymentMethods.reduce((sum, payment) => sum + Number(payment.paymentAmount || 0), 0);
-  const change = totalPaid - orderTotal;
+  const rawChange = totalPaid - orderTotal;
+  const change = rawChange >= 0 ? Math.floor(rawChange) : rawChange;
 
   const handleNumberClick = (num) => {
     if (num === 10 || num === 100 || num === 1000) {
@@ -67,7 +68,9 @@ const OrderCheckoutModal = ({ isOpen, onClose, payload, onConfirm, docked = fals
     setPaymentMethods((prev) => prev.filter((payment) => payment.id !== id));
   };
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
+    if (isSubmitting) return;
+
     if (!paymentMethods.length) {
       const fallbackPayments = [
         {
@@ -78,7 +81,7 @@ const OrderCheckoutModal = ({ isOpen, onClose, payload, onConfirm, docked = fals
         }
       ];
 
-      onConfirm?.([
+      await onConfirm?.([
         ...fallbackPayments
       ], true, {
         orderChange: 0,
@@ -87,7 +90,7 @@ const OrderCheckoutModal = ({ isOpen, onClose, payload, onConfirm, docked = fals
       return;
     }
 
-    onConfirm?.(paymentMethods, true, {
+    await onConfirm?.(paymentMethods, true, {
       orderChange: change,
       orderPaymentTotalAmount: totalPaid
     });
@@ -96,7 +99,7 @@ const OrderCheckoutModal = ({ isOpen, onClose, payload, onConfirm, docked = fals
   const content = (
     <View style={[styles.card, docked && styles.dockedCard]}>
       <View style={styles.headerRow}>
-        <TouchableOpacity style={styles.backBtn} onPress={onClose}>
+        <TouchableOpacity style={styles.backBtn} onPress={onClose} disabled={isSubmitting}>
           <Text style={styles.backBtnText}>←</Text>
         </TouchableOpacity>
         <Text style={styles.title}>Payment</Text>
@@ -197,8 +200,12 @@ const OrderCheckoutModal = ({ isOpen, onClose, payload, onConfirm, docked = fals
         </View>
       </ScrollView>
 
-      <TouchableOpacity style={styles.confirmBtn} onPress={handleConfirm}>
-        <Text style={styles.btnText}>Complete and Print Receipt</Text>
+      <TouchableOpacity
+        style={[styles.confirmBtn, isSubmitting && styles.confirmBtnDisabled]}
+        onPress={handleConfirm}
+        disabled={isSubmitting}
+      >
+        <Text style={styles.btnText}>{isSubmitting ? 'Processing...' : 'Complete and Print Receipt'}</Text>
       </TouchableOpacity>
     </View>
   );
@@ -397,6 +404,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e78f00',
     alignItems: 'center'
+  },
+  confirmBtnDisabled: {
+    backgroundColor: '#fbbf24',
+    borderColor: '#fbbf24',
+    opacity: 0.7
   },
   btnText: {
     color: '#ffffff',

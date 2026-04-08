@@ -1,4 +1,4 @@
-import { addDoc, collection, getDocs, query, where } from 'firebase/firestore';
+import { collection, doc, getDocs, query, runTransaction, where } from 'firebase/firestore';
 import { firestore } from '../../firebase.js';
 
 const toNumber = (value, fallback = 0) => {
@@ -90,6 +90,8 @@ const extractSequence = (orderNo, orderMode) => {
 };
 
 const buildOrderNo = (orderMode, sequence) => `${orderMode}${String(sequence).padStart(4, '0')}`;
+
+const sanitizeForDocId = (value) => String(value || '').replace(/[\/\s]+/g, '_');
 
 const candidateExistsInScope = async (candidateOrderNo, branchCode, orderDate) => {
   const byOrderNo = query(collection(firestore, 'CYNQ_POS_ORDER_DETAILS'), where('orderNo', '==', candidateOrderNo));
@@ -295,6 +297,55 @@ export const completeOrder = async (completeOrderObject) => {
       };
     }
 
+    const incomingTransactionId = toStringSafe(
+      completeOrderObject.mainDetails?.transactionId,
+      ''
+    ).trim();
+
+    if (incomingTransactionId) {
+      const seenDocIds = new Set();
+      let existingTransactionDoc = null;
+      const isSameScope = (row = {}) =>
+        toStringSafe(row.branchCode, '') === branchCode &&
+        toStringSafe(row.orderDate, '') === orderDate;
+
+      const byMainTransactionId = query(
+        collection(firestore, 'CYNQ_POS_ORDER_DETAILS'),
+        where('mainDetails.transactionId', '==', incomingTransactionId)
+      );
+      const byMainTransactionSnapshot = await getDocs(byMainTransactionId);
+
+      byMainTransactionSnapshot.forEach((docSnap) => {
+        const row = docSnap.data() || {};
+        if (isSameScope(row) && !seenDocIds.has(docSnap.id)) {
+          seenDocIds.add(docSnap.id);
+          if (!existingTransactionDoc) existingTransactionDoc = docSnap;
+        }
+      });
+
+      const byLegacyTransactionId = query(
+        collection(firestore, 'CYNQ_POS_ORDER_DETAILS'),
+        where('transactionId', '==', incomingTransactionId)
+      );
+      const byLegacyTransactionSnapshot = await getDocs(byLegacyTransactionId);
+
+      byLegacyTransactionSnapshot.forEach((docSnap) => {
+        const row = docSnap.data() || {};
+        if (isSameScope(row) && !seenDocIds.has(docSnap.id)) {
+          seenDocIds.add(docSnap.id);
+          if (!existingTransactionDoc) existingTransactionDoc = docSnap;
+        }
+      });
+
+      if (existingTransactionDoc) {
+        return {
+          success: true,
+          id: existingTransactionDoc.id,
+          message: 'Duplicate order prevented (transaction ID already exists).'
+        };
+      }
+    }
+
     const uniqueOrderNo = await generateUniqueOrderNo({
       branchCode,
       orderDate,
@@ -319,11 +370,36 @@ export const completeOrder = async (completeOrderObject) => {
 
     normalizedPayload.dedupeKey = dedupeKey;
 
-    const docRef = await addDoc(collection(firestore, 'CYNQ_POS_ORDER_DETAILS'), normalizedPayload);
+    const orderDocId = [
+      'DEDUPE',
+      sanitizeForDocId(branchCode),
+      sanitizeForDocId(orderDate),
+      sanitizeForDocId(dedupeKey)
+    ].join('_');
+    const orderDocRef = doc(firestore, 'CYNQ_POS_ORDER_DETAILS', orderDocId);
+
+    let wasCreated = false;
+    await runTransaction(firestore, async (transaction) => {
+      const existing = await transaction.get(orderDocRef);
+      if (existing.exists()) {
+        return;
+      }
+
+      transaction.set(orderDocRef, normalizedPayload);
+      wasCreated = true;
+    });
+
+    if (!wasCreated) {
+      return {
+        success: true,
+        id: orderDocRef.id,
+        message: 'Duplicate order prevented (already processed).'
+      };
+    }
 
     return {
       success: true,
-      id: docRef.id,
+      id: orderDocRef.id,
       message: 'Order completed successfully.'
     };
   } catch (error) {

@@ -12,9 +12,13 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import * as Location from 'expo-location';
 import QRCode from 'react-native-qrcode-svg';
 import { store } from '../config/env';
+import {
+  fetchCurrentLocation,
+  getCachedLocation,
+  initializeLocation
+} from '../processes/fetchCurrentLocation';
 import { loadQueueSummary } from '../processes/loadQueueSummary';
 import { loadEmployeeList } from '../processes/employees';
 import { fetchOrderMode } from '../processes/fetchOrderMode';
@@ -32,7 +36,7 @@ import { completeOrder } from '../processes/completeOrder';
 import OrderCheckoutModal from '../components/modal/OrderCheckoutModal';
 import OrderDetailsModal from '../components/modal/OrderDetailsModal.native';
 import { getStoredItem } from '../utils/storage';
-import { printReceipt } from '../utils/printReceipt';
+import { preloadReceiptAssets, printReceipt } from '../utils/printReceipt';
 import {
   DEFAULT_ADD_ONS,
   DEFAULT_CONSUME_METHODS,
@@ -67,6 +71,7 @@ const HomePage = () => {
   const [isEmployeeDropdownOpen, setIsEmployeeDropdownOpen] = useState(false);
   const [isTimeEntryModalOpen, setIsTimeEntryModalOpen] = useState(false);
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
+  const [isCheckoutSubmitting, setIsCheckoutSubmitting] = useState(false);
   const [isCustomizationModalOpen, setIsCustomizationModalOpen] = useState(false);
   const [isOrderDetailsModalOpen, setIsOrderDetailsModalOpen] = useState(false);
   const [selectedOrderDetails, setSelectedOrderDetails] = useState(null);
@@ -267,10 +272,16 @@ const HomePage = () => {
   );
 
   const calculatedDiscount = useMemo(() => {
+    const floorDiscount = (value) => {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+      return Math.floor(parsed);
+    };
+
     if (!discountValue || !discountType) return 0;
 
     if (discountType === 'SPEC') {
-      return processSpecialDiscount({
+      return floorDiscount(processSpecialDiscount({
         orderItems,
         discountDetails: {
           discountAmount: discountValue,
@@ -278,11 +289,11 @@ const HomePage = () => {
           discountDesc: discountDescription,
           discountType
         }
-      });
+      }));
     }
 
-    if (discountType === 'PERC') return (subtotalValue * parseFloat(discountValue || '0')) / 100;
-    if (discountType === 'CASH') return parseFloat(discountValue || '0');
+    if (discountType === 'PERC') return floorDiscount((subtotalValue * parseFloat(discountValue || '0')) / 100);
+    if (discountType === 'CASH') return floorDiscount(parseFloat(discountValue || '0'));
     return 0;
   }, [discountType, discountValue, subtotalValue, orderItems, discountCodeInput, discountDescription]);
 
@@ -633,26 +644,29 @@ const HomePage = () => {
     setTimeEntryError('');
 
     try {
-      const permission = await Location.requestForegroundPermissionsAsync();
-      if (permission.status !== 'granted') {
-        throw new Error('Location permission denied');
-      }
-
-      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest });
-      const locationData = {
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude,
-        accuracy: position.coords.accuracy
-      };
+      const locationData = await fetchCurrentLocation();
 
       setTimeEntryLocation(locationData);
       generateTimeEntryQr(locationData);
     } catch (error) {
-      setTimeEntryError(error?.message || 'Failed to load location');
+      const fallbackLocation = getCachedLocation();
+      if (fallbackLocation) {
+        setTimeEntryLocation(fallbackLocation);
+        generateTimeEntryQr(fallbackLocation);
+      }
+      setTimeEntryError('');
     } finally {
       setTimeEntryLoading(false);
     }
   };
+
+  useEffect(() => {
+    initializeLocation().catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    preloadReceiptAssets(store.branchCode).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!isTimeEntryModalOpen) return;
@@ -745,39 +759,48 @@ const HomePage = () => {
   };
 
   const handleCheckoutConfirm = async (paymentMethods, shouldPrintReceipt = false, checkoutSummary = {}) => {
-    if (!pendingCheckoutPayload) return;
+    if (!pendingCheckoutPayload || isCheckoutSubmitting) return;
 
-    const orderChangeValue = Number(checkoutSummary?.orderChange || 0);
-    const orderPaymentTotalAmountValue = Number(
-      checkoutSummary?.orderPaymentTotalAmount ||
-      (Array.isArray(paymentMethods)
-        ? paymentMethods.reduce((sum, payment) => sum + Number(payment?.paymentAmount || 0), 0)
-        : 0)
-    );
+    setIsCheckoutSubmitting(true);
 
-    const payloadToSubmit = {
-      ...pendingCheckoutPayload,
-      paymentMethods: Array.isArray(paymentMethods) && paymentMethods.length ? paymentMethods : pendingCheckoutPayload.paymentMethods,
-      orderDetails: {
-        ...(pendingCheckoutPayload.orderDetails || {}),
-        orderChange: orderChangeValue,
-        orderPaymentTotalAmount: orderPaymentTotalAmountValue
+    try {
+      const orderChangeRawValue = Number(checkoutSummary?.orderChange || 0);
+      const orderChangeValue = orderChangeRawValue >= 0
+        ? Math.floor(orderChangeRawValue)
+        : orderChangeRawValue;
+      const orderPaymentTotalAmountValue = Number(
+        checkoutSummary?.orderPaymentTotalAmount ||
+        (Array.isArray(paymentMethods)
+          ? paymentMethods.reduce((sum, payment) => sum + Number(payment?.paymentAmount || 0), 0)
+          : 0)
+      );
+
+      const payloadToSubmit = {
+        ...pendingCheckoutPayload,
+        paymentMethods: Array.isArray(paymentMethods) && paymentMethods.length ? paymentMethods : pendingCheckoutPayload.paymentMethods,
+        orderDetails: {
+          ...(pendingCheckoutPayload.orderDetails || {}),
+          orderChange: orderChangeValue,
+          orderPaymentTotalAmount: orderPaymentTotalAmountValue
+        }
+      };
+
+      console.log('[HomePage] completeOrder payload:', JSON.stringify(payloadToSubmit, null, 2));
+
+      const result = await completeOrder(payloadToSubmit);
+      if (!result.success) return Alert.alert('Error', result.message || 'Failed to complete order');
+
+      if (shouldPrintReceipt) {
+        await printReceipt(payloadToSubmit);
       }
-    };
 
-    console.log('[HomePage] completeOrder payload:', JSON.stringify(payloadToSubmit, null, 2));
-
-    const result = await completeOrder(payloadToSubmit);
-    if (!result.success) return Alert.alert('Error', result.message || 'Failed to complete order');
-
-    if (shouldPrintReceipt) {
-      await printReceipt(payloadToSubmit);
+      setIsCheckoutModalOpen(false);
+      setPendingCheckoutPayload(null);
+      Alert.alert('Success', 'Order completed successfully!');
+      handleCancelOrder();
+    } finally {
+      setIsCheckoutSubmitting(false);
     }
-
-    setIsCheckoutModalOpen(false);
-    setPendingCheckoutPayload(null);
-    Alert.alert('Success', 'Order completed successfully!');
-    handleCancelOrder();
   };
 
   const filteredQueue = [...queueItems]
@@ -1092,11 +1115,13 @@ const HomePage = () => {
             isOpen={isCheckoutModalOpen}
             docked
             onClose={() => {
+              if (isCheckoutSubmitting) return;
               setIsCheckoutModalOpen(false);
               setPendingCheckoutPayload(null);
             }}
             payload={pendingCheckoutPayload}
             onConfirm={handleCheckoutConfirm}
+            isSubmitting={isCheckoutSubmitting}
           />
 
           <OrderDetailsModal

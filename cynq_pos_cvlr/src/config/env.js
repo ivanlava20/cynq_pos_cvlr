@@ -1,12 +1,46 @@
+const normalizeEnvValue = (value) => {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+
+  const hasSingleQuotes = raw.startsWith("'") && raw.endsWith("'");
+  const hasDoubleQuotes = raw.startsWith('"') && raw.endsWith('"');
+  if (hasSingleQuotes || hasDoubleQuotes) {
+    return raw.slice(1, -1).trim();
+  }
+
+  return raw;
+};
+
+const envValues = {
+  EXPO_PUBLIC_STORE_NAME: normalizeEnvValue(process.env.EXPO_PUBLIC_STORE_NAME),
+  EXPO_PUBLIC_BRANCH_NAME: normalizeEnvValue(process.env.EXPO_PUBLIC_BRANCH_NAME),
+  EXPO_PUBLIC_BRANCH_CODE: normalizeEnvValue(process.env.EXPO_PUBLIC_BRANCH_CODE),
+  EXPO_PUBLIC_PRINTER_NAME: normalizeEnvValue(process.env.EXPO_PUBLIC_PRINTER_NAME),
+  EXPO_PUBLIC_PRINTER_MAC: normalizeEnvValue(process.env.EXPO_PUBLIC_PRINTER_MAC),
+  REACT_APP_STORE_NAME: normalizeEnvValue(process.env.REACT_APP_STORE_NAME),
+  REACT_APP_BRANCH_NAME: normalizeEnvValue(process.env.REACT_APP_BRANCH_NAME),
+  REACT_APP_BRANCH_CODE: normalizeEnvValue(process.env.REACT_APP_BRANCH_CODE),
+  REACT_APP_PRINTER_NAME: normalizeEnvValue(process.env.REACT_APP_PRINTER_NAME),
+  REACT_APP_PRINTER_MAC: normalizeEnvValue(process.env.REACT_APP_PRINTER_MAC)
+};
+
+const getEnvValue = (...keys) => {
+  for (const key of keys) {
+    const value = envValues[key] || '';
+    if (value) return value;
+  }
+  return '';
+};
+
 export const store = {
-  name: process.env.REACT_APP_STORE_NAME,
-  branch: process.env.REACT_APP_BRANCH_NAME,
-  branchCode: process.env.REACT_APP_BRANCH_CODE
+  name: getEnvValue('EXPO_PUBLIC_STORE_NAME', 'REACT_APP_STORE_NAME'),
+  branch: getEnvValue('EXPO_PUBLIC_BRANCH_NAME', 'REACT_APP_BRANCH_NAME'),
+  branchCode: getEnvValue('EXPO_PUBLIC_BRANCH_CODE', 'REACT_APP_BRANCH_CODE')
 };
 
 export const printer = {
-  name: process.env.REACT_APP_PRINTER_NAME || 'VOZY P50',
-  mac: process.env.REACT_APP_PRINTER_MAC || '5A:4A:48:1C:87:20'
+  name: getEnvValue('EXPO_PUBLIC_PRINTER_NAME', 'REACT_APP_PRINTER_NAME') || 'VOZY P50',
+  mac: getEnvValue('EXPO_PUBLIC_PRINTER_MAC', 'REACT_APP_PRINTER_MAC') || '5A:4A:48:1C:87:20'
 };
 
 export const firebase = {

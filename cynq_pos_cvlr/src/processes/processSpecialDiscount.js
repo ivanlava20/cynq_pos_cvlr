@@ -8,6 +8,11 @@ const toNumber = (value) => {
 };
 
 const getMultiplier = (discountAmount) => toNumber(discountAmount) / 100;
+const floorDiscount = (value) => {
+	const numeric = toNumber(value);
+	if (numeric <= 0) return 0;
+	return Math.floor(numeric);
+};
 
 /**
  * Process special discount (SPEC) based on order item categories.
@@ -36,7 +41,7 @@ export const processSpecialDiscount = ({ orderItems = [], discountDetails = {} }
 		const item = orderItems[0] || {};
 		const category = String(item.itemCategory ?? '').trim();
 		if (!SINGLE_ALLOWED_CATEGORIES.has(category)) return 0;
-		return multiplier * toNumber(item.itemTotalAmount);
+		return floorDiscount(multiplier * toNumber(item.itemTotalAmount));
 	}
 
 	const foodGroup = orderItems.filter((item) => FOOD_CATEGORIES.has(String(item?.itemCategory ?? '').trim()));
@@ -48,7 +53,7 @@ export const processSpecialDiscount = ({ orderItems = [], discountDetails = {} }
 	const foodDiscount = multiplier * highestFoodAmount;
 	const drinkDiscount = multiplier * highestDrinkAmount;
 
-	return foodDiscount + drinkDiscount;
+	return floorDiscount(foodDiscount + drinkDiscount);
 };
 
 export default processSpecialDiscount;

@@ -35,7 +35,8 @@ const OrderCheckoutModal = ({
   const [referenceNumber, setReferenceNumber] = useState('');
 
   const totalPaid = paymentMethods.reduce((sum, payment) => sum + payment.paymentAmount, 0);
-  const change = totalPaid - orderTotal;
+  const rawChange = totalPaid - orderTotal;
+  const change = rawChange >= 0 ? Math.floor(rawChange) : rawChange;
 
   const handleNumberClick = (num) => {
     if (num === 10 || num === 100 || num === 1000) {
@@ -155,7 +156,8 @@ const OrderCheckoutModal = ({
 
     // Calculate final totals
     const finalTotalPaid = adjustedPayments.reduce((sum, payment) => sum + payment.paymentAmount, 0);
-    const finalChange = finalTotalPaid - orderTotal;
+    const rawFinalChange = finalTotalPaid - orderTotal;
+    const finalChange = rawFinalChange >= 0 ? Math.floor(rawFinalChange) : rawFinalChange;
 
     // Log the results
     console.log('=== PAYMENT COMPLETION SUMMARY ===');
