@@ -9,7 +9,7 @@ import { firestore } from '../../firebase';
 const DEFAULT_PRINTER_NAME = 'VOZY P50';
 const DEFAULT_PRINTER_MAC = '5A:4A:48:1C:87:20';
 let receiptLogoDataUri = '';
-let receiptLogoUriFallback = '';
+let receiptLogoLoadPromise = null;
 let bluetoothLogoSourceKey = '';
 let bluetoothLogoBase64Cache = '';
 let lastSuccessfulBluetoothDevice = null;
@@ -56,6 +56,49 @@ const normalizeLogoDataUri = (logoInput = '') => {
   return `data:image/png;base64,${trimmed}`;
 };
 
+const readLogoAsDataUri = async (assetModuleLoader) => {
+  const logoAsset = Asset.fromModule(assetModuleLoader());
+  if (!logoAsset.localUri) {
+    await logoAsset.downloadAsync();
+  }
+
+  let sourceUri = logoAsset.localUri || logoAsset.uri;
+  if (!sourceUri) return '';
+
+  if (/^https?:\/\//i.test(sourceUri)) {
+    const cacheDir = FileSystem.cacheDirectory || FileSystem.documentDirectory;
+    if (!cacheDir) return '';
+
+    const downloadedLogoPath = `${cacheDir}receipt-logo-asset.png`;
+    await FileSystem.downloadAsync(sourceUri, downloadedLogoPath);
+    sourceUri = downloadedLogoPath;
+  }
+
+  const base64Logo = await FileSystem.readAsStringAsync(sourceUri, {
+    encoding: FileSystem.EncodingType.Base64
+  });
+
+  return base64Logo ? `data:image/png;base64,${base64Logo}` : '';
+};
+
+const loadReceiptLogoDataUri = async () => {
+  const logoCandidates = [
+    () => require('../../assets/cvlr_receipt_logo.png'),
+    () => require('../../assets/logo_receipt_white.png')
+  ];
+
+  for (const getLogoModule of logoCandidates) {
+    try {
+      const dataUri = await readLogoAsDataUri(getLogoModule);
+      if (dataUri) return dataUri;
+    } catch {
+      // try next logo candidate
+    }
+  }
+
+  return '';
+};
+
 const getReceiptLogoSrc = async (logoOverride = '') => {
   const overrideDataUri = normalizeLogoDataUri(logoOverride);
   if (overrideDataUri) {
@@ -64,33 +107,23 @@ const getReceiptLogoSrc = async (logoOverride = '') => {
   }
 
   if (receiptLogoDataUri) return receiptLogoDataUri;
-  if (receiptLogoUriFallback) return receiptLogoUriFallback;
 
-  try {
-    const logoAsset = Asset.fromModule(require('../../assets/logo_receipt_white.png'));
-    if (!logoAsset.localUri) {
-      await logoAsset.downloadAsync();
-    }
-
-    const logoUri = logoAsset.localUri || logoAsset.uri;
-    if (!logoUri) return '';
-
-    receiptLogoUriFallback = logoUri;
-
-    try {
-      const base64Logo = await FileSystem.readAsStringAsync(logoUri, {
-        encoding: FileSystem.EncodingType.Base64
+  if (!receiptLogoLoadPromise) {
+    receiptLogoLoadPromise = loadReceiptLogoDataUri()
+      .then((dataUri) => {
+        receiptLogoDataUri = dataUri || '';
+        return receiptLogoDataUri;
+      })
+      .catch((error) => {
+        console.warn('Failed to load receipt logo for printing:', error?.message || error);
+        return '';
+      })
+      .finally(() => {
+        receiptLogoLoadPromise = null;
       });
-
-      receiptLogoDataUri = `data:image/png;base64,${base64Logo}`;
-      return receiptLogoDataUri;
-    } catch {
-      return receiptLogoUriFallback;
-    }
-  } catch (error) {
-    console.warn('Failed to load receipt logo for printing:', error?.message || error);
-    return '';
   }
+
+  return receiptLogoLoadPromise;
 };
 
 export const preloadReceiptAssets = async (branchCode = '') => {
@@ -663,7 +696,7 @@ export const printReceipt = async (receiptData) => {
         <body>
           <div class="receipt-container">
             <div class="receipt-logo">
-              ${receiptLogoSrc ? `<img src="${receiptLogoSrc}" alt="Company Logo" />` : ''}
+              ${receiptLogoSrc ? `<img src="${receiptLogoSrc}" alt="" onerror="this.style.display='none'" />` : ''}
             </div>
             <div class="receipt-header">
               <h3>Cafe Vanleroe</h3>
@@ -905,7 +938,7 @@ export const printReceiptDirect = async (receiptData) => {
         <body>
           <div class="receipt-container">
             <div class="receipt-logo">
-              ${receiptLogoSrc ? `<img src="${receiptLogoSrc}" alt="Company Logo" />` : ''}
+              ${receiptLogoSrc ? `<img src="${receiptLogoSrc}" alt="" onerror="this.style.display='none'" />` : ''}
             </div>
             <div class="receipt-header">
               <h3>Cafe Vanleroe</h3>
